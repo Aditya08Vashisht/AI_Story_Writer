@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story Studio MVP</title>
+    <meta name="description" content="AI co-writer MVP for audio-first storytelling demos">
+    <link rel="stylesheet" href="static/story.css">
+</head>
+
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark">SS</div>
+            <div>
+                <h1>Story Studio</h1>
+                <p>Audio-first AI co-writer MVP</p>
+            </div>
+        </div>
+        <div class="topbar-actions">
+            <span class="status-pill" id="healthStatus">Static Demo</span>
+            <button class="ghost-button" id="loadDemoBtn" type="button">Load Demo</button>
+        </div>
+    </header>
+
+    <main class="workspace">
+        <section class="composer">
+            <div class="mode-tabs" role="tablist" aria-label="Generation mode">
+                <button class="mode-tab active" type="button" data-mode="hook">Hook Generator</button>
+                <button class="mode-tab" type="button" data-mode="expand">Scene Expander</button>
+                <button class="mode-tab" type="button" data-mode="continue">Story Continuation</button>
+            </div>
+
+            <label class="field-label" for="ideaInput">Story seed</label>
+            <textarea id="ideaInput" rows="7"
+                placeholder="A podcast writer receives a voice note from a listener who disappeared five years ago..."></textarea>
+
+            <div class="form-grid">
+                <label>
+                    <span>Genre</span>
+                    <select id="genreSelect">
+                        <option value="thriller">Thriller</option>
+                        <option value="romance">Romance</option>
+                        <option value="horror">Horror</option>
+                        <option value="fantasy">Fantasy</option>
+                        <option value="family drama">Family Drama</option>
+                        <option value="comedy">Comedy</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Tone</span>
+                    <select id="toneSelect">
+                        <option value="cinematic">Cinematic</option>
+                        <option value="suspenseful">Suspenseful</option>
+                        <option value="emotional">Emotional</option>
+                        <option value="witty">Witty</option>
+                        <option value="mythic">Mythic</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Language</span>
+                    <select id="languageSelect">
+                        <option value="english">English</option>
+                        <option value="hindi">Hindi-ready</option>
+                        <option value="hinglish">Hinglish</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Length</span>
+                    <select id="lengthSelect">
+                        <option value="short">Short</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="long">Long</option>
+                    </select>
+                </label>
+            </div>
+
+            <label class="field-label" for="charactersInput">Characters</label>
+            <input id="charactersInput" type="text" placeholder="Rhea, Kabir, Anaya">
+
+            <div class="prompt-row" id="demoPromptRow"></div>
+
+            <div class="action-row">
+                <button class="primary-button" id="generateBtn" type="button">Generate</button>
+                <button class="secondary-button" id="clearBtn" type="button">Reset</button>
+            </div>
+        </section>
+
+        <section class="output-panel" aria-live="polite">
+            <div class="output-header">
+                <div>
+                    <span class="eyebrow" id="modeLabel">Hook Generator</span>
+                    <h2 id="storyTitle">Ready for a story seed</h2>
+                </div>
+                <button class="ghost-button" id="copyBtn" type="button">Copy</button>
+            </div>
+
+            <div class="output-meta">
+                <span id="genreMeta">Thriller</span>
+                <span id="toneMeta">Cinematic</span>
+                <span id="languageMeta">English</span>
+            </div>
+
+            <article class="story-output" id="storyOutput">
+                Choose a mode, add a story seed, and generate a demo-ready sample.
+            </article>
+
+            <div class="insight-grid">
+                <div class="insight-block">
+                    <h3>Pitch</h3>
+                    <p id="pitchOutput">The pitch line will appear here.</p>
+                </div>
+                <div class="insight-block">
+                    <h3>Story Bible</h3>
+                    <dl id="bibleOutput">
+                        <dt>Central Conflict</dt>
+                        <dd>Waiting for generation</dd>
+                    </dl>
+                </div>
+                <div class="insight-block wide">
+                    <h3>Style Notes</h3>
+                    <ul id="styleOutput">
+                        <li>Voice, pacing, and format notes will appear after generation.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="static/story.js"></script>
+</body>
+
+</html>
