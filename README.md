@@ -4,6 +4,9 @@ Story Studio is an AI co-writer interface designed for serialized audio storytel
 
 This project was initially built as a deterministic keyword-matching engine. It has now been **upgraded to a fully functional GenAI application** using a local **Retrieval-Augmented Generation (RAG)** pipeline.
 
+<img width="1893" height="963" alt="image" src="https://github.com/user-attachments/assets/01e02f27-7e3b-4e8e-847c-114b844ba82d" />
+
+
 ## Features & Modes
 
 The app currently supports three MVP tasks:
@@ -23,6 +26,9 @@ The backend now uses an intelligent LLM-powered RAG pipeline:
 2. **Embeddings & Vector Search:** Using `sentence-transformers` and `FAISS`, the engine instantly finds the top 3 story snippets that best match the user's idea and genre.
 3. **LLM Generation:** The context is fed into **ChatGroq (Llama 3 70B)** to dynamically generate the story, pitch, story bible, and style notes.
 4. **Graceful Fallback:** If the API goes offline or hits a rate limit, the system gracefully falls back to the local deterministic engine—so the frontend never breaks.
+
+<img width="1892" height="950" alt="image" src="https://github.com/user-attachments/assets/6f5faf47-6471-4df1-8333-e787c7bd18d1" />
+
 
 ## Getting Started
 
