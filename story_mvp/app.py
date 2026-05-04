@@ -6,11 +6,28 @@ import os
 import sys
 from datetime import datetime
 
+from dotenv import load_dotenv
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, jsonify, render_template, request
 
-from story_mvp.generator import GENRES, MODE_TITLES, TONES, generate_story_piece
+from story_mvp.generator import GENRES, MODE_TITLES, TONES, generate_story_piece, generate_story_piece_ai
+
+try:
+    from story_mvp.rag_engine import StoryRAG
+    from story_mvp.llm_client import StoryLLM
+    
+    DATASET_DIR = os.path.join(_PROJECT_ROOT, "story_datasets")
+    RAG_ENGINE = StoryRAG(dataset_dir=DATASET_DIR)
+    LLM_CLIENT = StoryLLM()
+    AI_ENABLED = True
+except Exception as e:
+    print(f"Warning: Failed to initialize AI components - {e}")
+    AI_ENABLED = False
 
 
 app = Flask(
@@ -81,7 +98,16 @@ def options():
 @app.route("/api/generate", methods=["POST"])
 def generate():
     payload = request.get_json(silent=True) or {}
-    result = generate_story_piece(payload)
+    
+    if AI_ENABLED:
+        try:
+            result = generate_story_piece_ai(payload, RAG_ENGINE, LLM_CLIENT)
+        except Exception as e:
+            print(f"AI generation failed, falling back: {e}")
+            result = generate_story_piece(payload)
+    else:
+        result = generate_story_piece(payload)
+        
     result["generated_at"] = datetime.now().isoformat(timespec="seconds")
     return jsonify(result)
 
@@ -96,7 +122,7 @@ def health():
     return jsonify(
         {
             "status": "online",
-            "engine": "local_story_mvp",
+            "engine": "groq_rag" if AI_ENABLED else "local_story_mvp",
             "ready_for_model_swap": True,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
@@ -104,7 +130,8 @@ def health():
 
 
 def run_story_studio(host: str = "127.0.0.1", port: int = 5050, debug: bool = False):
-    app.run(host=host, port=port, debug=debug)
+    # use_reloader=False prevents double-initialization of the heavy RAG engine
+    app.run(host=host, port=port, debug=debug, use_reloader=False)
 
 
 if __name__ == "__main__":

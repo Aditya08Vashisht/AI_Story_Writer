@@ -1,0 +1,5 @@
+
+.env
+__pycache__/
+*.pyc
+story_mvp/faiss_index/

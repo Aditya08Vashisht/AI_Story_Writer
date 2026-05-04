@@ -1,0 +1,32 @@
+[
+  {
+    "id": "scene_thriller_01",
+    "mode": "expand",
+    "genre": "thriller",
+    "tone": "suspenseful",
+    "language": "english",
+    "text": "Rhea reached the half-lit apartment above a silent marketplace with the feeling that the place had been waiting. Rain ticking against a broken window cut through the ordinary noise around them, turning every small movement into a warning. The idea was simple on paper: A podcast writer receives voice notes from a missing listener. In the room, it felt much larger, as if the story had found a body and started breathing.\n\nKabir tried to laugh it off, but the laugh came out too thin. \"Say exactly what you saw,\" Kabir said. Rhea looked at the doorway, then at the shadow underneath it. The answer should have been easy. Instead, Rhea noticed the one detail that did not belong: the scene was already arranged like the final page of a script.\n\nThe moment broke when a new sound entered the room. Not loud, not dramatic, just precise. It forced both of them to understand the same thing at once: the safest witness is the one who has been lying from the start. Rhea did not run. A better instinct took over. If this was a story, then somebody had written a clue into the fear.",
+    "tags": ["discovery", "tension"],
+    "metadata": { "characters": ["Rhea", "Kabir"], "setting": "apartment", "conflict": "a secret that could ruin an entire family" }
+  },
+  {
+    "id": "scene_family_01",
+    "mode": "expand",
+    "genre": "family drama",
+    "tone": "emotional",
+    "language": "hinglish",
+    "text": "Anaya reached the crowded home on the morning of a wedding with the feeling that the place had been waiting. A festival light flickering above an empty chair cut through the ordinary noise around them, turning every small movement into a memory. The idea was simple on paper: she had just come back for her brother. In the room, it felt much larger, jaise is ghar ki deewarein bhi koi raaz chhupa rahi hon.\n\nDev tried to laugh it off, but the laugh came out too thin. \"Say exactly what you saw,\" Dev said. Anaya looked at the old photo albums smelling of dust. The answer should have been easy. Instead, Anaya noticed the one detail that did not belong: the scene was already arranged to hide the truth.\n\nThe moment broke when a new sound entered the room. Not loud, not dramatic, just precise. It forced both of them to understand the same thing at once: the person everyone blames is the only one protecting them. Anaya ne tay kiya ki ab koi jhoot nahi bola jayega.",
+    "tags": ["revelation", "emotional"],
+    "metadata": { "characters": ["Anaya", "Dev"], "setting": "wedding home", "conflict": "truth that can heal or split" }
+  },
+  {
+    "id": "scene_horror_01",
+    "mode": "expand",
+    "genre": "horror",
+    "tone": "mythic",
+    "language": "english",
+    "text": "Riya reached the ancestral home where every mirror is covered with the feeling that the place had been waiting. Footsteps stopping outside a locked room cut through the ordinary noise around them, turning every small movement into a warning. In the room, the silence felt thick, as if the story had found a body and started breathing.\n\nKabir stood frozen. Riya looked at the doorway, then at the shadow underneath it. Instead of an intruder, she noticed a detail that did not belong: a childhood rhyme whispered through static from an unplugged radio.\n\nThe moment broke when the voice grew clearer. It forced both of them to understand the same thing at once: the ghost is not asking for revenge, but for help.",
+    "tags": ["creepy", "haunted"],
+    "metadata": { "characters": ["Riya", "Kabir"], "setting": "ancestral home", "conflict": "fear that knows every name" }
+  }
+]

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "hook_thriller_01",
+    "mode": "hook",
+    "genre": "thriller",
+    "tone": "suspenseful",
+    "language": "english",
+    "text": "When Rhea discovers a locked phone buzzing under the floorboards, Kabir insists it is nothing, until the same warning appears inside tomorrow's audio script.",
+    "tags": ["mystery", "dark", "urban"],
+    "metadata": { "characters": ["Rhea", "Kabir"], "setting": "apartment", "conflict": "a secret that could ruin a family" }
+  },
+  {
+    "id": "hook_thriller_02",
+    "mode": "hook",
+    "genre": "thriller",
+    "tone": "cinematic",
+    "language": "hinglish",
+    "text": "Aarav has one night to turn a half-forgotten idea into a hit story, but every new draft reveals a secret that could ruin an entire family. Yeh script nahi, ek confession hai.",
+    "tags": ["deadline", "stakes"],
+    "metadata": { "characters": ["Aarav"], "setting": "studio", "conflict": "a secret that could ruin a family" }
+  },
+  {
+    "id": "hook_romance_01",
+    "mode": "hook",
+    "genre": "romance",
+    "tone": "emotional",
+    "language": "english",
+    "text": "Two former radio hosts meet during a blackout, sharing a paper cup warming cold fingers. Meera carries an unsent confession that arrives at the worst possible time.",
+    "tags": ["reunion", "soft", "intimate"],
+    "metadata": { "characters": ["Aarav", "Meera"], "setting": "city terrace", "conflict": "love at worst time" }
+  },
+  {
+    "id": "hook_romance_02",
+    "mode": "hook",
+    "genre": "romance",
+    "tone": "witty",
+    "language": "hinglish",
+    "text": "The person walking away has already written the ending. But Dev forgot one detail: the old song playing from a tea stall is the exact one they promised never to listen to again.",
+    "tags": ["breakup", "irony"],
+    "metadata": { "characters": ["Dev"], "setting": "tea stall", "conflict": "love at worst time" }
+  },
+  {
+    "id": "hook_horror_01",
+    "mode": "hook",
+    "genre": "horror",
+    "tone": "mythic",
+    "language": "english",
+    "text": "A prayer bell rings by itself in an ancestral home where every mirror is covered. The ghost is not asking for revenge, but for help from the only living heir.",
+    "tags": ["supernatural", "eerie"],
+    "metadata": { "characters": ["Riya", "Kabir"], "setting": "ancestral home", "conflict": "fear knows every name" }
+  },
+  {
+    "id": "hook_fantasy_01",
+    "mode": "hook",
+    "genre": "fantasy",
+    "tone": "cinematic",
+    "language": "english",
+    "text": "A map redraws itself in moonlight when a storyteller remembers the dragon's name. But Mira soon realizes the chosen one is only a decoy for the real heir.",
+    "tags": ["magic", "destiny"],
+    "metadata": { "characters": ["Mira", "Arjun"], "setting": "dragon shrine", "conflict": "kingdom balanced on one choice" }
+  },
+  {
+    "id": "hook_family_01",
+    "mode": "hook",
+    "genre": "family drama",
+    "tone": "emotional",
+    "language": "hindi",
+    "text": "Subah ke pressure cooker ki seeti aur purane photo albums ke beech, Anaya ko ek aisi sachai milti hai jo parivaar ko jod sakti hai, ya hamesha ke liye tod sakti hai.",
+    "tags": ["domestic", "secrets"],
+    "metadata": { "characters": ["Anaya", "Dev"], "setting": "crowded home", "conflict": "heal or split forever" }
+  },
+  {
+    "id": "hook_comedy_01",
+    "mode": "hook",
+    "genre": "comedy",
+    "tone": "witty",
+    "language": "english",
+    "text": "A microphone squeals at exactly the wrong moment. Sameer's tiny lie is growing into a full public disaster, and the worst plan in the room is about to accidentally solve everything.",
+    "tags": ["chaos", "misunderstanding"],
+    "metadata": { "characters": ["Sameer", "Veena"], "setting": "community hall", "conflict": "tiny lie public disaster" }
+  }
+]

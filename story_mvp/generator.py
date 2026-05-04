@@ -133,6 +133,41 @@ def generate_story_piece(payload: Dict[str, str]) -> Dict[str, object]:
         "safety": _safety_check(request.idea),
     }
 
+def generate_story_piece_ai(payload: Dict[str, str], rag_engine, llm_client) -> Dict[str, object]:
+    """Generate a story piece using RAG and LLM."""
+    request = _normalize_request(payload)
+    
+    # Retrieve context from RAG
+    results = rag_engine.retrieve(query=request.idea, mode=request.mode, genre=request.genre)
+    context_text = rag_engine.get_context_text(results)
+    
+    # Generate from LLM
+    try:
+        llm_response = llm_client.generate(request, context_text)
+    except Exception as e:
+        print(f"Fallback triggered: LLM failed - {e}")
+        return generate_story_piece(payload) # Fallback to deterministic
+        
+    # Build exact matching response format
+    title = _title_from_idea(request.idea, request.genre)
+    
+    # Safety Check on the generated output
+    safety_info = _safety_check(llm_response.get("output", ""))
+    
+    return {
+        "title": title,
+        "mode": request.mode,
+        "mode_label": MODE_TITLES[request.mode],
+        "genre": request.genre,
+        "tone": request.tone,
+        "language": request.language,
+        "output": llm_response.get("output", "No output generated."),
+        "pitch": llm_response.get("pitch", ""),
+        "style_notes": llm_response.get("style_notes", []),
+        "story_bible": llm_response.get("story_bible", {}),
+        "safety": safety_info,
+    }
+
 
 def _normalize_request(payload: Dict[str, str]) -> StoryRequest:
     mode = _clean_choice(payload.get("mode", ""), MODE_TITLES.keys(), SAFE_MODE_FALLBACK)

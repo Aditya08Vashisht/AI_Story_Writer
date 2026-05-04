@@ -1,0 +1,32 @@
+[
+  {
+    "id": "cont_romance_01",
+    "mode": "continue",
+    "genre": "romance",
+    "tone": "cinematic",
+    "language": "english",
+    "text": "Aarav does not answer immediately. The silence gives the room enough time to change. Somewhere nearby, a message is left unsent at midnight, and Meera realizes the old version of the plan is useless now.\n\nInstead of explaining, Aarav opens the last draft again. The words are the same, but the meaning is not. It is no longer a goodbye. It is an invitation.\n\nThey decide to walk out into the city terrace before sunrise. That choice keeps the story moving and raises the central question: who benefits if a love story that arrives at the worst possible time stays buried?\n\nThe episode can end on a clean cliffhanger: Meera finds proof that Aarav was present at the beginning of the mystery, even though Aarav has no memory of being there.",
+    "tags": ["cliffhanger", "romantic tension"],
+    "metadata": { "characters": ["Aarav", "Meera"], "setting": "city terrace", "conflict": "love at the worst time" }
+  },
+  {
+    "id": "cont_fantasy_01",
+    "mode": "continue",
+    "genre": "fantasy",
+    "tone": "mythic",
+    "language": "english",
+    "text": "Mira does not answer immediately. The silence gives the shrine enough time to change. Somewhere nearby, ashes glow like fireflies, and Arjun realizes the old version of the prophecy is useless now.\n\nInstead of fleeing, Mira opens the ancient scroll again. The runes are the same, but the meaning is not. It is no longer a warning. It is an invitation to the sleeping dragon.\n\nThey decide to follow the clue before sunrise. That choice keeps the story moving and raises the central question: who benefits if a kingdom balanced on one forbidden choice stays divided?",
+    "tags": ["magic", "prophecy"],
+    "metadata": { "characters": ["Mira", "Arjun"], "setting": "dragon shrine", "conflict": "kingdom on forbidden choice" }
+  },
+  {
+    "id": "cont_comedy_01",
+    "mode": "continue",
+    "genre": "comedy",
+    "tone": "witty",
+    "language": "hinglish",
+    "text": "Veena does not answer immediately. The silence gives the community hall enough time to change. Somewhere nearby, chai spills on a printed master plan, and Sameer realizes the old version of the lie is useless now.\n\nInstead of explaining, Veena grabs the mic again. The excuse is the same, but the confidence is not. Ab yeh sirf ek galti nahi, ek masterstroke banne wala tha.\n\nThey decide to roll with the worst plan in the room. That choice keeps the story moving and raises the central question: who benefits if a tiny lie growing into a full public disaster is exactly what the chief guest wanted?",
+    "tags": ["chaos", "funny"],
+    "metadata": { "characters": ["Veena", "Sameer"], "setting": "community hall", "conflict": "tiny lie public disaster" }
+  }
+]
