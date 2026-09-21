@@ -4,11 +4,18 @@ StoryTutor-MM is a multilingual study-story maker for Class 6–8 Science/Social
 
 ## Free-First Stack
 
+<<<<<<< HEAD
 - **Default hosted model:** Groq Qwen via `GROQ_API_KEY` and `STORY_MODEL=qwen/qwen3-32b`.
 - **Local fallback:** Ollama via `OLLAMA_MODEL=qwen3:1.7b` or another local model.
 - **Optional Sarvam demo:** disabled by default. Enable only with `STORYTUTOR_ENABLE_SARVAM=1` plus `SARVAM_API_KEY`; use it for limited free-credit testing/evaluation, not as a required dependency.
 - **Embeddings:** `STORYTUTOR_EMBEDDING_MODEL=BAAI/bge-m3` by default for multilingual retrieval.
 - **Video path:** storyboard, narration, diagram specs, and local-renderable plans first; no paid image/video/TTS API required.
+=======
+<img width="1893" height="963" alt="image" src="https://github.com/user-attachments/assets/01e02f27-7e3b-4e8e-847c-114b844ba82d" />
+
+
+## Features & Modes
+>>>>>>> b82a28aca943eef7987006b5640d3e665c731144
 
 ## Curriculum Ingestion
 
@@ -20,8 +27,15 @@ python -m story_mvp.ingest_curriculum --source story_datasets/NCERT_6th-8th --ou
 
 The ingester writes:
 
+<<<<<<< HEAD
 - `knowledge_base/processed/curriculum_chunks.json`
 - `knowledge_base/processed/ingestion_audit.json`
+=======
+<img width="1892" height="950" alt="image" src="https://github.com/user-attachments/assets/6f5faf47-6471-4df1-8333-e787c7bd18d1" />
+
+
+## Getting Started
+>>>>>>> b82a28aca943eef7987006b5640d3e665c731144
 
 Each chunk includes class, subject, language, chapter, page, source file, and text metadata. The audit flags missing Class 6–8 Science/Social Science coverage across English, Hindi, and Marathi.
 
