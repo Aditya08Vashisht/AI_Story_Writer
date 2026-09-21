@@ -15,34 +15,49 @@ const MODE_LABELS = {
 
 const LOCAL_DEMOS = [
     {
-        label: 'Audio thriller',
+        label: 'Energy mystery',
         mode: 'hook',
         genre: 'thriller',
         tone: 'suspenseful',
         language: 'hinglish',
-        idea: 'A struggling podcast writer receives voice notes from a missing listener before each episode releases.',
-        characters: 'Rhea, Kabir',
+        idea: 'Help a student understand how energy transfers when a spoon warms in hot water and a speaker vibrates rice grains.',
+        characters: 'Asha, Kabir',
         length: 'medium',
+        class_level: '6',
+        subject: 'science',
+        chapter: 'energy transfer',
+        output_type: 'video_demo_plan',
+        difficulty: 'medium',
     },
     {
-        label: 'Family drama',
+        label: 'Pond ecosystem',
         mode: 'expand',
         genre: 'family drama',
         tone: 'emotional',
         language: 'hindi',
-        idea: "A daughter returns home for her brother's wedding and finds her late mother's diary hidden in the prayer room.",
+        idea: 'Teach how sunlight, algae, insects, fish, oxygen, and decomposers connect in a pond ecosystem.',
         characters: 'Anaya, Dev',
         length: 'medium',
+        class_level: '6',
+        subject: 'science',
+        chapter: 'ecosystems',
+        output_type: 'study_story',
+        difficulty: 'medium',
     },
     {
-        label: 'Romance cliffhanger',
+        label: 'Force misconception',
         mode: 'continue',
-        genre: 'romance',
+        genre: 'comedy',
         tone: 'cinematic',
         language: 'english',
-        idea: 'Two former radio hosts meet again during a city blackout, with one final unsent confession between them.',
+        idea: 'A learner thinks a moving object always needs a forward force. Build a story-based explanation that corrects the misconception.',
         characters: 'Aarav, Meera',
         length: 'long',
+        class_level: '6',
+        subject: 'science',
+        chapter: 'forces',
+        output_type: 'video_demo_plan',
+        difficulty: 'medium',
     },
 ];
 
@@ -97,10 +112,15 @@ function bindElements() {
         'healthStatus',
         'loadDemoBtn',
         'ideaInput',
+        'classLevelSelect',
+        'subjectSelect',
         'genreSelect',
         'toneSelect',
         'languageSelect',
         'lengthSelect',
+        'outputTypeSelect',
+        'difficultySelect',
+        'chapterInput',
         'charactersInput',
         'demoPromptRow',
         'generateBtn',
@@ -184,6 +204,11 @@ function applyDemo(index) {
     });
 
     els.ideaInput.value = demo.idea;
+    if (els.classLevelSelect) els.classLevelSelect.value = demo.class_level || '6';
+    if (els.subjectSelect) els.subjectSelect.value = demo.subject || 'science';
+    if (els.outputTypeSelect) els.outputTypeSelect.value = demo.output_type || 'study_story';
+    if (els.difficultySelect) els.difficultySelect.value = demo.difficulty || 'medium';
+    if (els.chapterInput) els.chapterInput.value = demo.chapter || '';
     els.genreSelect.value = demo.genre;
     els.toneSelect.value = demo.tone;
     els.languageSelect.value = demo.language;
@@ -195,6 +220,12 @@ async function generateStory() {
     const payload = {
         mode: state.mode,
         idea: els.ideaInput.value,
+        class_level: els.classLevelSelect ? els.classLevelSelect.value : '',
+        subject: els.subjectSelect ? els.subjectSelect.value : '',
+        chapter: els.chapterInput ? els.chapterInput.value : '',
+        topic: els.chapterInput ? els.chapterInput.value : '',
+        output_type: els.outputTypeSelect ? els.outputTypeSelect.value : 'study_story',
+        difficulty: els.difficultySelect ? els.difficultySelect.value : 'medium',
         genre: els.genreSelect.value,
         tone: els.toneSelect.value,
         language: els.languageSelect.value,
@@ -240,21 +271,46 @@ function renderResult(data) {
 
     els.styleOutput.innerHTML = (data.style_notes || []).map((note) => (
         `<li>${escapeHtml(note)}</li>`
-    )).join('');
+    )).join('') + renderTutorExtras(data);
 }
 
 function resetForm() {
     els.ideaInput.value = '';
+    if (els.chapterInput) els.chapterInput.value = '';
+    if (els.classLevelSelect) els.classLevelSelect.value = '';
+    if (els.subjectSelect) els.subjectSelect.value = '';
+    if (els.outputTypeSelect) els.outputTypeSelect.value = 'study_story';
+    if (els.difficultySelect) els.difficultySelect.value = 'medium';
     els.charactersInput.value = '';
     els.genreSelect.value = 'thriller';
     els.toneSelect.value = 'cinematic';
     els.languageSelect.value = 'english';
     els.lengthSelect.value = 'medium';
-    els.storyTitle.textContent = 'Ready for a story seed';
-    els.storyOutput.textContent = 'Choose a mode, add a story seed, and generate a demo-ready sample.';
+    els.storyTitle.textContent = 'Ready for a learning goal';
+    els.storyOutput.textContent = 'Choose a mode, add a learning goal, and generate a demo-ready tutoring sample.';
     els.pitchOutput.textContent = 'The pitch line will appear here.';
     els.bibleOutput.innerHTML = '<dt>Central Conflict</dt><dd>Waiting for generation</dd>';
     els.styleOutput.innerHTML = '<li>Voice, pacing, and format notes will appear after generation.</li>';
+}
+
+function renderTutorExtras(data) {
+    const extras = [];
+    if (data.learning_objective) {
+        extras.push(`<li>Learning objective: ${escapeHtml(data.learning_objective)}</li>`);
+    }
+    if (Array.isArray(data.quiz) && data.quiz.length) {
+        extras.push(`<li>Quiz: ${escapeHtml(data.quiz[0].question || '')}</li>`);
+    }
+    if (Array.isArray(data.storyboard) && data.storyboard.length) {
+        extras.push(`<li>Storyboard scenes: ${data.storyboard.length}</li>`);
+    }
+    if (data.video_demo_plan && data.video_demo_plan.renderable_without_paid_api) {
+        extras.push('<li>Video plan: renderable without paid APIs</li>');
+    }
+    if (Array.isArray(data.retrieved_sources) && data.retrieved_sources.length) {
+        extras.push(`<li>Sources retrieved: ${data.retrieved_sources.length}</li>`);
+    }
+    return extras.join('');
 }
 
 async function copyOutput() {

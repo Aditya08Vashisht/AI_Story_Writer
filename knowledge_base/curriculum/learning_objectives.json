@@ -1,0 +1,38 @@
+[
+  {
+    "id": "curriculum_inquiry_01",
+    "mode": "hook",
+    "genre": "fantasy",
+    "tone": "cinematic",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "upper elementary",
+    "topic": "scientific inquiry",
+    "learning_objective": "Turn an observation into a testable question and a simple investigation plan.",
+    "text": "Learning goal: turn observations into testable questions. Start with a phenomenon students can see, such as two plants growing differently near a window. Then guide them from wonder to variables: what changes, what stays the same, and what evidence would answer the question?",
+    "tags": ["inquiry", "variables", "investigation"],
+    "metadata": {
+      "standards": ["science practices"],
+      "prerequisites": ["observation"],
+      "assessment_type": "investigation plan"
+    }
+  },
+  {
+    "id": "curriculum_explanation_01",
+    "mode": "expand",
+    "genre": "thriller",
+    "tone": "suspenseful",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "claim evidence reasoning",
+    "learning_objective": "Construct a scientific explanation using claim, evidence, and reasoning.",
+    "text": "Learning goal: construct a claim-evidence-reasoning explanation. The claim answers the question, the evidence comes from observations or data, and the reasoning connects evidence to the science idea. Students need all three parts to make the explanation convincing.",
+    "tags": ["CER", "evidence", "reasoning"],
+    "metadata": {
+      "standards": ["science practices"],
+      "prerequisites": ["data interpretation"],
+      "assessment_type": "written explanation"
+    }
+  }
+]

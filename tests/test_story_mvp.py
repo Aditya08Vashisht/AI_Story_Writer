@@ -19,6 +19,9 @@ def test_hook_generation_returns_demo_fields():
     assert "Rhea" in result["output"]
     assert result["story_bible"]["primary_characters"] == ["Rhea", "Kabir"]
     assert result["safety"]["status"] == "clear"
+    assert result["learning_objective"]
+    assert result["storyboard"]
+    assert result["video_demo_plan"]["renderable_without_paid_api"] is True
 
 
 def test_invalid_options_fall_back_to_safe_defaults():
@@ -35,6 +38,31 @@ def test_invalid_options_fall_back_to_safe_defaults():
     assert result["genre"] == "thriller"
     assert result["tone"] == "cinematic"
     assert result["output"]
+
+
+def test_educational_payload_adds_multimodal_fields():
+    result = generate_story_piece(
+        {
+            "mode": "expand",
+            "genre": "thriller",
+            "tone": "cinematic",
+            "language": "marathi",
+            "idea": "Explain photosynthesis using a story and video demo.",
+            "class_level": "6",
+            "subject": "science",
+            "chapter": "plants",
+            "output_type": "video_demo_plan",
+            "difficulty": "medium",
+        }
+    )
+
+    assert result["language"] == "marathi"
+    assert result["learning_objective"]
+    assert result["explanation"]
+    assert result["quiz"]
+    assert result["storyboard"]
+    assert result["diagram_plan"]["type"] == "flowchart"
+    assert result["video_demo_plan"]["renderable_without_paid_api"] is True
 
 
 def test_scene_expansion_longer_than_hook():

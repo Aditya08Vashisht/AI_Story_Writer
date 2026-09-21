@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Story Studio MVP</title>
-    <meta name="description" content="AI co-writer MVP for audio-first storytelling demos">
+    <title>StoryTutor-MM MVP</title>
+    <meta name="description" content="AI tutor MVP for multimodal, story-based learning demos">
     <link rel="stylesheet" href="/static/story.css">
 </head>
 
@@ -14,8 +14,8 @@
         <div class="brand">
             <div class="brand-mark">SS</div>
             <div>
-                <h1>Story Studio</h1>
-                <p>Audio-first AI co-writer MVP</p>
+                <h1>StoryTutor-MM</h1>
+                <p>Multimodal story-based AI tutor MVP</p>
             </div>
         </div>
         <div class="topbar-actions">
@@ -34,11 +34,28 @@
                 {% endfor %}
             </div>
 
-            <label class="field-label" for="ideaInput">Story seed</label>
+            <label class="field-label" for="ideaInput">Learning Goal</label>
             <textarea id="ideaInput" rows="7"
-                placeholder="A podcast writer receives a voice note from a listener who disappeared five years ago..."></textarea>
+                placeholder="Help a student understand energy transfer using a memorable story, examples, and a misconception check..."></textarea>
 
             <div class="form-grid">
+                <label>
+                    <span>Class</span>
+                    <select id="classLevelSelect">
+                        <option value="">Any</option>
+                        <option value="6">Class 6</option>
+                        <option value="7">Class 7</option>
+                        <option value="8">Class 8</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Subject</span>
+                    <select id="subjectSelect">
+                        <option value="">Any</option>
+                        <option value="science">Science</option>
+                        <option value="social_science">Social Science</option>
+                    </select>
+                </label>
                 <label>
                     <span>Genre</span>
                     <select id="genreSelect">
@@ -61,6 +78,7 @@
                         <option value="english">English</option>
                         <option value="hindi">Hindi-ready</option>
                         <option value="hinglish">Hinglish</option>
+                        <option value="marathi">Marathi</option>
                     </select>
                 </label>
                 <label>
@@ -71,7 +89,27 @@
                         <option value="long">Long</option>
                     </select>
                 </label>
+                <label>
+                    <span>Output</span>
+                    <select id="outputTypeSelect">
+                        <option value="study_story">Study Story</option>
+                        <option value="video_demo_plan">Video Demo Plan</option>
+                        <option value="explanation">Explanation</option>
+                        <option value="quiz">Quiz</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Difficulty</span>
+                    <select id="difficultySelect">
+                        <option value="easy">Easy</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                </label>
             </div>
+
+            <label class="field-label" for="chapterInput">Chapter or Topic</label>
+            <input id="chapterInput" type="text" placeholder="Plants, maps, motion, kingdoms, water cycle">
 
             <label class="field-label" for="charactersInput">Characters</label>
             <input id="charactersInput" type="text" placeholder="Rhea, Kabir, Anaya">
@@ -88,7 +126,7 @@
             <div class="output-header">
                 <div>
                     <span class="eyebrow" id="modeLabel">Hook Generator</span>
-                    <h2 id="storyTitle">Ready for a story seed</h2>
+                    <h2 id="storyTitle">Ready for a learning goal</h2>
                 </div>
                 <button class="ghost-button" id="copyBtn" type="button">Copy</button>
             </div>
@@ -100,7 +138,7 @@
             </div>
 
             <article class="story-output" id="storyOutput">
-                Choose a mode, add a story seed, and generate a demo-ready sample.
+                Choose a mode, add a learning goal, and generate a demo-ready tutoring sample.
             </article>
 
             <div class="insight-grid">

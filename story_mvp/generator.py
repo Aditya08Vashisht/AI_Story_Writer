@@ -79,6 +79,7 @@ LANGUAGE_NOTES = {
     "english": "English",
     "hindi": "Hindi-ready English draft",
     "hinglish": "Hinglish-flavored draft",
+    "marathi": "Marathi-ready draft",
 }
 
 MODE_TITLES = {
@@ -101,6 +102,12 @@ class StoryRequest:
     language: str = "english"
     characters: str = ""
     length: str = "medium"
+    class_level: str = ""
+    subject: str = ""
+    chapter: str = ""
+    topic: str = ""
+    output_type: str = "study_story"
+    difficulty: str = "medium"
 
 
 def generate_story_piece(payload: Dict[str, str]) -> Dict[str, object]:
@@ -119,7 +126,7 @@ def generate_story_piece(payload: Dict[str, str]) -> Dict[str, object]:
         output = _generate_continuation(request, genre_data, tone_data, cast, seed)
 
     title = _title_from_idea(request.idea, request.genre)
-    return {
+    result = {
         "title": title,
         "mode": request.mode,
         "mode_label": MODE_TITLES[request.mode],
@@ -132,29 +139,38 @@ def generate_story_piece(payload: Dict[str, str]) -> Dict[str, object]:
         "story_bible": _story_bible(request, genre_data, cast),
         "safety": _safety_check(request.idea),
     }
+    result.update(_educational_artifacts(request, output, [], provider="deterministic"))
+    result["retrieved_sources"] = []
+    return result
 
 def generate_story_piece_ai(payload: Dict[str, str], rag_engine, llm_client) -> Dict[str, object]:
     """Generate a story piece using RAG and LLM."""
     request = _normalize_request(payload)
     
-    # Retrieve context from RAG
-    results = rag_engine.retrieve(query=request.idea, mode=request.mode, genre=request.genre)
+    filters = {
+        "class_level": request.class_level,
+        "subject": request.subject,
+        "language": request.language if request.language in {"english", "hindi", "marathi"} else "",
+        "chapter": request.chapter,
+        "topic": request.topic,
+    }
+    curriculum_query = " ".join(
+        part for part in (request.idea, request.chapter, request.topic) if part
+    )
+    results = rag_engine.retrieve(query=curriculum_query, filters=filters)
     context_text = rag_engine.get_context_text(results)
     
-    # Generate from LLM
     try:
         llm_response = llm_client.generate(request, context_text)
     except Exception as e:
         print(f"Fallback triggered: LLM failed - {e}")
-        return generate_story_piece(payload) # Fallback to deterministic
+        fallback = generate_story_piece(payload)
+        fallback["retrieved_sources"] = _source_documents(rag_engine, results)
+        return fallback
         
-    # Build exact matching response format
     title = _title_from_idea(request.idea, request.genre)
-    
-    # Safety Check on the generated output
     safety_info = _safety_check(llm_response.get("output", ""))
-    
-    return {
+    result = {
         "title": title,
         "mode": request.mode,
         "mode_label": MODE_TITLES[request.mode],
@@ -167,6 +183,9 @@ def generate_story_piece_ai(payload: Dict[str, str], rag_engine, llm_client) -> 
         "story_bible": llm_response.get("story_bible", {}),
         "safety": safety_info,
     }
+    result.update(_educational_artifacts(request, result["output"], results, llm_response, getattr(llm_client, "last_provider", "unknown")))
+    result["retrieved_sources"] = _source_documents(rag_engine, results)
+    return result
 
 
 def _normalize_request(payload: Dict[str, str]) -> StoryRequest:
@@ -177,9 +196,21 @@ def _normalize_request(payload: Dict[str, str]) -> StoryRequest:
     length = _clean_choice(payload.get("length", ""), {"short", "medium", "long"}, "medium")
     idea = _clean_text(payload.get("idea", ""))
     characters = _clean_text(payload.get("characters", ""))
+    class_level = _clean_choice(payload.get("class_level", ""), {"6", "7", "8"}, "")
+    subject = _clean_choice(payload.get("subject", ""), {"science", "social_science", "social science", "sst"}, "")
+    if subject in {"social science", "sst"}:
+        subject = "social_science"
+    chapter = _clean_text(payload.get("chapter", ""))[:120]
+    topic = _clean_text(payload.get("topic", ""))[:160]
+    output_type = _clean_choice(
+        payload.get("output_type", ""),
+        {"study_story", "video_demo_plan", "explanation", "quiz", "story_video_plan"},
+        "study_story",
+    )
+    difficulty = _clean_choice(payload.get("difficulty", ""), {"easy", "medium", "hard"}, "medium")
 
     if not idea:
-        idea = "A creator finds one unfinished story that seems to know their future."
+        idea = "Help a student understand a curriculum concept through a clear story and explanation."
 
     return StoryRequest(
         mode=mode,
@@ -189,6 +220,12 @@ def _normalize_request(payload: Dict[str, str]) -> StoryRequest:
         language=language,
         characters=characters,
         length=length,
+        class_level=class_level,
+        subject=subject,
+        chapter=chapter,
+        topic=topic,
+        output_type=output_type,
+        difficulty=difficulty,
     )
 
 
@@ -281,6 +318,8 @@ def _language_wrap(language: str, text: str) -> str:
         return f"{text}\n\nPerformance flavor: keep the narration English-led, but let emotional dialogue land in natural Hinglish where it feels intimate."
     if language == "hindi":
         return f"{text}\n\nHindi adaptation note: preserve the beats, translate dialogue naturally, and keep narration suitable for Hindi audio drama."
+    if language == "marathi":
+        return f"{text}\n\nMarathi adaptation note: preserve the concept accurately, use simple Marathi for narration, and keep important textbook terms clear."
     return text
 
 
@@ -322,3 +361,132 @@ def _safety_check(text: str) -> Dict[str, object]:
         "flags": flagged_terms,
         "note": "Demo filter only. Production should use a dedicated moderation model and policy layer.",
     }
+
+
+def _educational_artifacts(
+    request: StoryRequest,
+    output: str,
+    sources: List[Dict],
+    llm_response: Dict[str, object] = None,
+    provider: str = "deterministic",
+) -> Dict[str, object]:
+    llm_response = llm_response or {}
+    learning_objective = llm_response.get("learning_objective") or _learning_objective(request)
+    explanation = llm_response.get("explanation") or _fallback_explanation(request, sources)
+    story = llm_response.get("story") or output
+    storyboard = llm_response.get("storyboard") or _storyboard(request, explanation, story)
+    diagram_plan = llm_response.get("diagram_plan") or _diagram_plan(request)
+    narration_script = llm_response.get("narration_script") or _narration_script(request, storyboard)
+    video_demo_plan = llm_response.get("video_demo_plan") or _video_demo_plan(storyboard, diagram_plan)
+    return {
+        "learning_objective": learning_objective,
+        "explanation": explanation,
+        "story": story,
+        "quiz": llm_response.get("quiz") or _quiz(request),
+        "storyboard": storyboard,
+        "diagram_plan": diagram_plan,
+        "narration_script": narration_script,
+        "video_demo_plan": video_demo_plan,
+        "model_provider": provider,
+        "free_first": True,
+    }
+
+
+def _learning_objective(request: StoryRequest) -> str:
+    subject = request.subject.replace("_", " ") if request.subject else "the subject"
+    level = f"Class {request.class_level} " if request.class_level else ""
+    return f"Help a {level}student understand {request.idea} in {subject} using story, explanation, and a quick check."
+
+
+def _fallback_explanation(request: StoryRequest, sources: List[Dict]) -> str:
+    source_hint = sources[0].get("text", "")[:280] if sources else request.idea
+    return _language_wrap(
+        request.language,
+        f"Concept explanation: {request.idea}. Start with the observable situation, name the key idea, connect it to the curriculum source, and ask the learner to explain the idea back in their own words. Source clue: {source_hint}",
+    )
+
+
+def _storyboard(request: StoryRequest, explanation: str, story: str) -> List[Dict[str, object]]:
+    return [
+        {
+            "scene_number": 1,
+            "visual": f"Title slide for {request.idea}",
+            "narration": f"Today we will learn: {request.idea}",
+            "learning_point": "Introduce the learning goal.",
+        },
+        {
+            "scene_number": 2,
+            "visual": "Simple story scene with learner characters and one clear phenomenon.",
+            "narration": story[:280],
+            "learning_point": "Make the concept memorable through story.",
+        },
+        {
+            "scene_number": 3,
+            "visual": "Diagram or flowchart that connects the main ideas.",
+            "narration": explanation[:280],
+            "learning_point": "Explain the concept clearly.",
+        },
+        {
+            "scene_number": 4,
+            "visual": "Quiz card with one question and four choices.",
+            "narration": "Pause and answer the check question before moving ahead.",
+            "learning_point": "Check understanding.",
+        },
+    ]
+
+
+def _diagram_plan(request: StoryRequest) -> Dict[str, object]:
+    topic = request.topic or request.chapter or request.idea
+    return {
+        "type": "flowchart",
+        "title": f"{topic} concept map",
+        "nodes": ["Learning goal", "Story example", "Concept explanation", "Misconception check", "Quiz"],
+        "edges": [
+            ["Learning goal", "Story example"],
+            ["Story example", "Concept explanation"],
+            ["Concept explanation", "Misconception check"],
+            ["Misconception check", "Quiz"],
+        ],
+    }
+
+
+def _narration_script(request: StoryRequest, storyboard: List[Dict[str, object]]) -> str:
+    lines = [f"Scene {scene['scene_number']}: {scene['narration']}" for scene in storyboard]
+    return _language_wrap(request.language, "\n".join(lines))
+
+
+def _video_demo_plan(storyboard: List[Dict[str, object]], diagram_plan: Dict[str, object]) -> Dict[str, object]:
+    return {
+        "scenes": storyboard,
+        "assets_needed": [
+            "Generated title slide",
+            "Simple illustrated story frame",
+            f"{diagram_plan.get('type', 'diagram')} diagram rendered locally",
+            "Quiz card",
+            "Text narration script",
+        ],
+        "renderable_without_paid_api": True,
+        "recommended_free_tools": ["ffmpeg", "moviepy", "HTML/SVG diagrams", "browser screenshots"],
+    }
+
+
+def _quiz(request: StoryRequest) -> List[Dict[str, object]]:
+    return [
+        {
+            "question": f"Which statement best explains the learning goal: {request.idea}?",
+            "options": [
+                "It connects evidence or examples to the concept.",
+                "It only repeats the story without explaining.",
+                "It ignores the textbook source.",
+                "It changes the topic completely.",
+            ],
+            "answer": "It connects evidence or examples to the concept.",
+            "explanation": "A good study story must still explain the curriculum concept accurately.",
+        }
+    ]
+
+
+def _source_documents(rag_engine, results: List[Dict]) -> List[Dict[str, object]]:
+    if hasattr(rag_engine, "source_documents"):
+        return rag_engine.source_documents(results)
+    return [{"id": doc.get("id"), "source_file": doc.get("source_file")} for doc in results]

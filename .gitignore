@@ -1,5 +1,31 @@
-
+# Secrets
 .env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Large regenerable data — NEVER commit these to GitHub
+story_datasets/NCERT_6th-8th/
+knowledge_base/processed/*.json
+knowledge_base/processed/*.log
+
+# Build artifacts / caches
 story_mvp/faiss_index/
+models/
+hf_cache/
+outputs/
+renders/
+*.tar.gz
+*.mp4
+*.wav
+
+# OS
+.DS_Store
+Thumbs.db

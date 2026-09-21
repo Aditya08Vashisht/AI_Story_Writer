@@ -8,12 +8,13 @@ from dotenv import load_dotenv
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
+os.environ.setdefault("STORYTUTOR_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 from story_mvp.generator import generate_story_piece, generate_story_piece_ai
 from story_mvp.rag_engine import StoryRAG
 from story_mvp.llm_client import StoryLLM
 
-DATASET_DIR = os.path.join(_PROJECT_ROOT, "story_datasets")
+DATASET_DIR = os.path.join(_PROJECT_ROOT, "knowledge_base")
 TEST_INDEX_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_test_integration_index")
 
 # Required fields in any generate response (same for old and AI engines)

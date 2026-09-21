@@ -1,88 +1,112 @@
-# Story Studio MVP: GenAI & RAG Edition
+# StoryTutor-MM MVP: Free-First Educational RAG
 
-Story Studio is an AI co-writer interface designed for serialized audio storytelling. It helps creators instantly draft audio-first story pieces. 
+StoryTutor-MM is a multilingual study-story maker for Class 6–8 Science/Social Science. It preserves the original `/api/generate` contract while adding curriculum-grounded explanations, quizzes, storyboard plans, narration scripts, and video-demo plans.
 
-This project was initially built as a deterministic keyword-matching engine. It has now been **upgraded to a fully functional GenAI application** using a local **Retrieval-Augmented Generation (RAG)** pipeline.
+## Free-First Stack
 
-## Features & Modes
+- **Default hosted model:** Groq Qwen via `GROQ_API_KEY` and `STORY_MODEL=qwen/qwen3-32b`.
+- **Local fallback:** Ollama via `OLLAMA_MODEL=qwen3:1.7b` or another local model.
+- **Optional Sarvam demo:** disabled by default. Enable only with `STORYTUTOR_ENABLE_SARVAM=1` plus `SARVAM_API_KEY`; use it for limited free-credit testing/evaluation, not as a required dependency.
+- **Embeddings:** `STORYTUTOR_EMBEDDING_MODEL=BAAI/bge-m3` by default for multilingual retrieval.
+- **Video path:** storyboard, narration, diagram specs, and local-renderable plans first; no paid image/video/TTS API required.
 
-The app currently supports three MVP tasks:
-- **Hook Generator:** Drafts a gripping opening hook for an episode.
-- **Scene Expander:** Takes a basic idea and expands it into an atmospheric, dialogue-rich scene.
-- **Story Continuation:** Writes the next logical beats, always ending on an audio-friendly cliffhanger.
+## Curriculum Ingestion
 
-You can customize the output by:
-- **Genre:** Thriller, Romance, Horror, Fantasy, Family Drama, Comedy
-- **Tone:** Cinematic, Suspenseful, Emotional, Witty, Mythic
-- **Language:** English, Hindi-ready, Hinglish
+PDFs live under `story_datasets/NCERT_6th-8th`. Convert them into processed JSON chunks:
 
-## Architecture: How it Works
+```bash
+python -m story_mvp.ingest_curriculum --source story_datasets/NCERT_6th-8th --output knowledge_base/processed
+```
 
-The backend now uses an intelligent LLM-powered RAG pipeline:
-1. **Knowledge Base:** Curated JSON datasets of high-quality story snippets live in `story_datasets/`.
-2. **Embeddings & Vector Search:** Using `sentence-transformers` and `FAISS`, the engine instantly finds the top 3 story snippets that best match the user's idea and genre.
-3. **LLM Generation:** The context is fed into **ChatGroq (Llama 3 70B)** to dynamically generate the story, pitch, story bible, and style notes.
-4. **Graceful Fallback:** If the API goes offline or hits a rate limit, the system gracefully falls back to the local deterministic engine—so the frontend never breaks.
+The ingester writes:
 
-## Getting Started
+- `knowledge_base/processed/curriculum_chunks.json`
+- `knowledge_base/processed/ingestion_audit.json`
 
-### Prerequisites
-- Python 3.9+
-- A [Groq API Key](https://console.groq.com/)
+Each chunk includes class, subject, language, chapter, page, source file, and text metadata. The audit flags missing Class 6–8 Science/Social Science coverage across English, Hindi, and Marathi.
 
-### Installation
+## API
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Create a `.env` file in the root directory and add your Groq API key:
-   ```env
-   GROQ_API_KEY=your_groq_api_key_here
-   STORY_MODEL=llama-3.3-70b-versatile
-   RAG_TOP_K=3
-   ```
+Existing payloads still work. New educational fields are additive:
 
-### Running the App
+```json
+{
+  "idea": "Explain photosynthesis using a story and video demo",
+  "class_level": "6",
+  "subject": "science",
+  "language": "marathi",
+  "chapter": "plants",
+  "output_type": "video_demo_plan",
+  "difficulty": "medium",
+  "mode": "expand",
+  "tone": "cinematic",
+  "length": "medium"
+}
+```
+
+Responses keep the original fields and add tutor artifacts:
+
+```json
+{
+  "title": "...",
+  "output": "...",
+  "pitch": "...",
+  "story_bible": {},
+  "style_notes": [],
+  "safety": {},
+  "learning_objective": "...",
+  "retrieved_sources": [],
+  "explanation": "...",
+  "story": "...",
+  "quiz": [],
+  "storyboard": [],
+  "diagram_plan": {},
+  "narration_script": "...",
+  "video_demo_plan": {
+    "scenes": [],
+    "assets_needed": [],
+    "renderable_without_paid_api": true
+  }
+}
+```
+
+## Architecture
+
+1. **Curriculum ingestion:** PDF text is extracted into structured chunks.
+2. **Hybrid retrieval:** FAISS vector search plus keyword scoring and metadata filters.
+3. **Model adapter:** Groq Qwen first, optional Sarvam if explicitly enabled, Ollama fallback, deterministic fallback.
+4. **Tutor pipeline:** responses include explanation, story, quiz, citations, storyboard, diagram plan, narration, and video-demo plan.
+5. **Compatibility:** `/api/generate`, legacy payload keys, and original response keys remain stable.
+
+## Environment
+
+```env
+GROQ_API_KEY=optional_for_groq_free_tier
+STORY_MODEL=qwen/qwen3-32b
+STORYTUTOR_EMBEDDING_MODEL=BAAI/bge-m3
+OLLAMA_HOST=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3:1.7b
+
+# Optional Sarvam testing only
+STORYTUTOR_ENABLE_SARVAM=0
+SARVAM_API_KEY=
+SARVAM_MODEL=sarvam-30b
+```
+
+## Run
 
 ```bash
 python -m story_mvp.app
 ```
-Then, open your browser and go to `http://127.0.0.1:5050`.
 
-*Note: On your first run, the app will download a small (~80MB) embedding model for the RAG engine.*
+Open:
 
-## Testing
+```text
+http://127.0.0.1:5050
+```
 
-The project includes a comprehensive pytest suite covering both the fallback engine and the new AI components.
+## Test
+
 ```bash
 python -m pytest tests/ -v
-```
-
-## API
-
-The frontend communicates with a unified endpoint. The response shape remains stable whether generated by the LLM or the fallback engine.
-
-```http
-POST /api/generate
-```
-
-**Example Response Payload:**
-```json
-{
-  "title": "Night Shift Security Guard",
-  "mode": "hook",
-  "genre": "thriller",
-  "output": "The actual story text...",
-  "pitch": "A 1-sentence catchy pitch...",
-  "story_bible": {
-    "central_conflict": "...",
-    "primary_characters": ["..."],
-    "recurring_image": "...",
-    "next_episode_question": "..."
-  },
-  "style_notes": ["Note 1", "Note 2"],
-  "safety": { "status": "clear", "flags": [] }
-}
 ```

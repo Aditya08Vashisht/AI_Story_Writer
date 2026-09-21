@@ -1,0 +1,38 @@
+[
+  {
+    "id": "example_story_energy_01",
+    "mode": "expand",
+    "genre": "fantasy",
+    "tone": "mythic",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "energy transfer",
+    "learning_objective": "Use a narrative scene to explain energy transfer in a chain of events.",
+    "text": "Teaching example: a village generator fails during a festival, so learners follow energy from moving water to a turbine, from the turbine to electrical current, and from electricity to light and sound. Each scene beat names the transfer and gives one observable clue.",
+    "tags": ["example", "story-based learning", "energy"],
+    "metadata": {
+      "story_role": "narrative analogy",
+      "assessment_type": "sequence explanation",
+      "multimodal_hint": "diagram energy flow arrows"
+    }
+  },
+  {
+    "id": "example_ecosystem_pond_01",
+    "mode": "continue",
+    "genre": "family drama",
+    "tone": "emotional",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "ecosystem interactions",
+    "learning_objective": "Predict how changing one part of an ecosystem affects other parts.",
+    "text": "Teaching example: after a dry week, the pond level drops, plants near the edge wilt, insects gather in fewer places, and fish compete for oxygen. Learners predict what changes next and justify the prediction with ecosystem relationships.",
+    "tags": ["example", "ecosystems", "prediction"],
+    "metadata": {
+      "story_role": "scenario",
+      "assessment_type": "cause and effect prediction",
+      "multimodal_hint": "ecosystem interaction diagram"
+    }
+  }
+]

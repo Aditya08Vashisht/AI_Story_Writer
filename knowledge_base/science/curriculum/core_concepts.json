@@ -1,0 +1,56 @@
+[
+  {
+    "id": "science_energy_01",
+    "mode": "hook",
+    "genre": "thriller",
+    "tone": "suspenseful",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "energy transfer",
+    "learning_objective": "Explain how energy transfers between objects through heat, light, sound, or motion.",
+    "text": "Learning goal: explain energy transfer. A classroom investigation begins when a metal spoon warms in a cup of hot water, a rubber band snaps forward, and a phone speaker vibrates rice grains on a tray. The learner must connect each event to the same core idea: energy moves from one object or system to another.",
+    "tags": ["energy", "systems", "phenomena"],
+    "metadata": {
+      "standards": ["MS-PS3"],
+      "prerequisites": ["identify forms of energy"],
+      "assessment_type": "explain phenomenon"
+    }
+  },
+  {
+    "id": "science_ecosystems_01",
+    "mode": "expand",
+    "genre": "family drama",
+    "tone": "emotional",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "ecosystem interactions",
+    "learning_objective": "Describe how organisms depend on each other and on nonliving parts of an ecosystem.",
+    "text": "Learning goal: describe ecosystem interactions. In a pond model, sunlight supports algae, insects feed near the surface, fish rely on oxygen in the water, and decomposers recycle matter from dead leaves. A strong explanation follows the connections instead of naming organisms one by one.",
+    "tags": ["ecosystems", "interdependence", "models"],
+    "metadata": {
+      "standards": ["MS-LS2"],
+      "prerequisites": ["biotic and abiotic factors"],
+      "assessment_type": "model explanation"
+    }
+  },
+  {
+    "id": "science_forces_01",
+    "mode": "continue",
+    "genre": "comedy",
+    "tone": "witty",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "forces and motion",
+    "learning_objective": "Use balanced and unbalanced forces to predict changes in an object's motion.",
+    "text": "Learning goal: predict motion from forces. A cart stays still when two students pull with equal strength in opposite directions, then accelerates when one side pulls harder. The useful next step is to ask whether the forces cancel or leave a net force.",
+    "tags": ["forces", "motion", "net force"],
+    "metadata": {
+      "standards": ["MS-PS2"],
+      "prerequisites": ["pushes and pulls"],
+      "assessment_type": "prediction"
+    }
+  }
+]

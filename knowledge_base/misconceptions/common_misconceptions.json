@@ -1,0 +1,38 @@
+[
+  {
+    "id": "misconception_energy_01",
+    "mode": "continue",
+    "genre": "thriller",
+    "tone": "suspenseful",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "energy transfer",
+    "learning_objective": "Distinguish energy transfer from energy being used up or disappearing.",
+    "text": "Common misconception: energy disappears when an object stops moving. Better teaching move: trace where the energy went, such as into sound, heat, or deformation, and ask students to account for the full system.",
+    "tags": ["misconception", "energy", "conservation"],
+    "metadata": {
+      "misconception": "Energy is used up and gone.",
+      "correction": "Energy transfers or transforms within a system.",
+      "assessment_type": "diagnostic question"
+    }
+  },
+  {
+    "id": "misconception_forces_01",
+    "mode": "hook",
+    "genre": "comedy",
+    "tone": "witty",
+    "language": "english",
+    "subject": "science",
+    "grade_band": "middle",
+    "topic": "forces and motion",
+    "learning_objective": "Explain that motion can continue even when no net force acts on an object.",
+    "text": "Common misconception: an object needs a continuous force to keep moving. Better teaching move: separate force from motion by comparing a sliding object slowing because of friction with an ideal low-friction situation.",
+    "tags": ["misconception", "forces", "friction"],
+    "metadata": {
+      "misconception": "Moving objects always require a forward force.",
+      "correction": "A net force changes motion; friction often slows objects.",
+      "assessment_type": "concept check"
+    }
+  }
+]

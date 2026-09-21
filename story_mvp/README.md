@@ -1,12 +1,12 @@
-# Story Studio MVP
+# StoryTutor-MM MVP
 
-Story Studio is a demo-ready AI co-writer interface for serialized audio storytelling. It focuses on three MVP tasks:
+StoryTutor-MM is a demo-ready AI tutor interface for story-based educational content. It preserves the original API shape while shifting the product from story creation to curriculum-grounded tutoring.
 
-- Generate a hook
-- Expand a scene
-- Continue a story
+- Generate a learning hook
+- Expand a concept explanation
+- Continue an adaptive learning story
 
-The current backend is a local deterministic story engine, so the demo works without downloading model weights. The API is shaped so it can later be swapped for a fine-tuned LLM service.
+The backend can use a RAG + LLM pipeline when configured, with a local deterministic fallback so the demo still works without external services.
 
 ## Run
 
@@ -54,13 +54,13 @@ Example payload:
   "language": "hinglish",
   "length": "medium",
   "characters": "Rhea, Kabir",
-  "idea": "A podcast writer receives voice notes from a missing listener."
+  "idea": "Help a student understand energy transfer through a story-based explanation."
 }
 ```
 
-## Future Model Swap
+## Future Architecture
 
-Replace `story_mvp/generator.py` with an adapter that calls a fine-tuned model endpoint. Keep the response fields stable:
+Keep the response fields stable while evolving internals toward hybrid RAG, LangGraph agents, learner memory, MCP servers, multimodal generation, and assessment:
 
 - `output`
 - `pitch`

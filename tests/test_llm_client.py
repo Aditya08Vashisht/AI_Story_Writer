@@ -123,13 +123,13 @@ def test_llm_style_notes_is_list(llm):
     print(f"  Style notes: {result['style_notes']}")
 
 
-def test_llm_raises_without_api_key():
-    """StoryLLM should raise ValueError if no API key is provided."""
+def test_llm_constructs_without_api_key_for_free_first_fallback():
+    """StoryLLM should construct without Groq because Ollama is the free fallback."""
     # Temporarily unset the env var
     original = os.environ.pop("GROQ_API_KEY", None)
     try:
-        with pytest.raises(ValueError, match="API key"):
-            StoryLLM(api_key=None)
+        llm = StoryLLM(api_key=None)
+        assert llm.last_provider == "none"
     finally:
         if original:
             os.environ["GROQ_API_KEY"] = original

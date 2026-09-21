@@ -1,4 +1,4 @@
-"""Flask app for the Story Studio MVP."""
+"""Flask app for the StoryTutor-MM MVP."""
 
 from __future__ import annotations
 
@@ -18,11 +18,11 @@ from flask import Flask, jsonify, render_template, request
 from story_mvp.generator import GENRES, MODE_TITLES, TONES, generate_story_piece, generate_story_piece_ai
 
 try:
-    from story_mvp.rag_engine import StoryRAG
+    from story_mvp.rag_engine import RetrievalService
     from story_mvp.llm_client import StoryLLM
     
-    DATASET_DIR = os.path.join(_PROJECT_ROOT, "story_datasets")
-    RAG_ENGINE = StoryRAG(dataset_dir=DATASET_DIR)
+    DATASET_DIR = os.path.join(_PROJECT_ROOT, "knowledge_base")
+    RAG_ENGINE = RetrievalService(dataset_dir=DATASET_DIR)
     LLM_CLIENT = StoryLLM()
     AI_ENABLED = True
 except Exception as e:
@@ -35,39 +35,54 @@ app = Flask(
     template_folder="templates",
     static_folder="static",
 )
-app.config["SECRET_KEY"] = "story-studio-mvp-2026"
+app.config["SECRET_KEY"] = "story-tutor-mm-mvp-2026"
 
 
 DEMO_PROMPTS = [
     {
-        "label": "Audio thriller",
+        "label": "Energy mystery",
         "mode": "hook",
         "genre": "thriller",
         "tone": "suspenseful",
         "language": "hinglish",
-        "idea": "A struggling podcast writer receives voice notes from a missing listener before each episode releases.",
-        "characters": "Rhea, Kabir",
+        "idea": "Help a student understand how energy transfers when a spoon warms in hot water and a speaker vibrates rice grains.",
+        "characters": "Asha, Kabir",
         "length": "medium",
+        "class_level": "6",
+        "subject": "science",
+        "chapter": "energy transfer",
+        "output_type": "video_demo_plan",
+        "difficulty": "medium",
     },
     {
-        "label": "Family drama",
+        "label": "Pond ecosystem",
         "mode": "expand",
         "genre": "family drama",
         "tone": "emotional",
         "language": "hindi",
-        "idea": "A daughter returns home for her brother's wedding and finds her late mother's diary hidden in the prayer room.",
+        "idea": "Teach how sunlight, algae, insects, fish, oxygen, and decomposers connect in a pond ecosystem.",
         "characters": "Anaya, Dev",
         "length": "medium",
+        "class_level": "6",
+        "subject": "science",
+        "chapter": "ecosystems",
+        "output_type": "study_story",
+        "difficulty": "medium",
     },
     {
-        "label": "Romance cliffhanger",
+        "label": "Force misconception",
         "mode": "continue",
-        "genre": "romance",
+        "genre": "comedy",
         "tone": "cinematic",
         "language": "english",
-        "idea": "Two former radio hosts meet again during a city blackout, with one final unsent confession between them.",
+        "idea": "A learner thinks a moving object always needs a forward force. Build a story-based explanation that corrects the misconception.",
         "characters": "Aarav, Meera",
         "length": "long",
+        "class_level": "6",
+        "subject": "science",
+        "chapter": "forces",
+        "output_type": "video_demo_plan",
+        "difficulty": "medium",
     },
 ]
 
@@ -89,8 +104,12 @@ def options():
             "modes": MODE_TITLES,
             "genres": list(GENRES.keys()),
             "tones": list(TONES.keys()),
-            "languages": ["english", "hindi", "hinglish"],
+            "languages": ["english", "hindi", "hinglish", "marathi"],
             "lengths": ["short", "medium", "long"],
+            "class_levels": ["6", "7", "8"],
+            "subjects": ["science", "social_science"],
+            "output_types": ["study_story", "video_demo_plan", "explanation", "quiz", "story_video_plan"],
+            "difficulties": ["easy", "medium", "hard"],
         }
     )
 
@@ -122,7 +141,9 @@ def health():
     return jsonify(
         {
             "status": "online",
-            "engine": "groq_rag" if AI_ENABLED else "local_story_mvp",
+            "engine": "free_first_hybrid_rag" if AI_ENABLED else "local_story_tutor_mvp",
+            "embedding_model": getattr(RAG_ENGINE, "model_name", None) if AI_ENABLED else None,
+            "model_provider": getattr(LLM_CLIENT, "last_provider", "not_used") if AI_ENABLED else "deterministic",
             "ready_for_model_swap": True,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
