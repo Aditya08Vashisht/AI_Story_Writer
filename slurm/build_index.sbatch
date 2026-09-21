@@ -6,8 +6,9 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:a100:1
-# VERIFY partition/QoS against ASU RC docs before first submit:
-#SBATCH --partition=general
+# Sol moved publicly-available nodes to the "public" partition (2026).
+# If this fails, list valid options with: sinfo -s -o "%20P %5a %10l %6D"
+#SBATCH --partition=public
 #SBATCH --qos=public
 
 set -euo pipefail
