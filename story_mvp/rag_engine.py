@@ -7,11 +7,27 @@ import faiss
 from sentence_transformers import SentenceTransformer
 
 
+def _resolve_device() -> str:
+    """Pick the embedding device. STORYTUTOR_DEVICE overrides autodetection."""
+    override = os.environ.get("STORYTUTOR_DEVICE", "").strip().lower()
+    if override:
+        return override
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
 class StoryRAG:
     def __init__(self, dataset_dir: str, index_dir: str = None, model_name: str = None):
         self.dataset_dir = dataset_dir
         self.index_dir = index_dir or os.path.join(os.path.dirname(__file__), "faiss_index")
         self.model_name = model_name or os.environ.get("STORYTUTOR_EMBEDDING_MODEL", "BAAI/bge-m3")
+        self.device = _resolve_device()
+        self.embed_batch_size = int(os.environ.get("STORYTUTOR_EMBED_BATCH", "64"))
+        self.max_seq_length = int(os.environ.get("STORYTUTOR_MAX_SEQ_LEN", "1024"))
         self.model = None
         self.index = None
         self.documents: List[Dict] = []
@@ -27,8 +43,12 @@ class StoryRAG:
         signature_path = os.path.join(self.index_dir, f"{index_slug}.signature")
         dataset_signature = self._dataset_signature()
 
-        print("Loading embedding model...")
-        self.model = SentenceTransformer(self.model_name)
+        print(f"Loading embedding model {self.model_name} on {self.device}...")
+        self.model = SentenceTransformer(self.model_name, device=self.device)
+        # Chunks cap at 1800 characters, so bge-m3's 8192-token default would pad
+        # every batch to many times the length any chunk actually needs.
+        if self.max_seq_length:
+            self.model.max_seq_length = self.max_seq_length
 
         if os.path.exists(index_path):
             stored_index = faiss.read_index(index_path)
@@ -71,9 +91,15 @@ class StoryRAG:
             return
 
         texts = [doc["text"] for doc in self.documents]
-        print(f"Embedding {len(texts)} documents...")
+        print(f"Embedding {len(texts)} documents on {self.device} (batch={self.embed_batch_size})...")
         import numpy as np
-        embeddings = self.model.encode(texts, convert_to_numpy=True).astype(np.float32)
+        embeddings = self.model.encode(
+            texts,
+            convert_to_numpy=True,
+            batch_size=self.embed_batch_size,
+            show_progress_bar=True,
+            normalize_embeddings=True,
+        ).astype(np.float32)
         
         # Normalize for cosine similarity
         faiss.normalize_L2(embeddings)
