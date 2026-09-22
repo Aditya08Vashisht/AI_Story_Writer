@@ -244,6 +244,12 @@ Target:
 
 Use the retrieved sources as grounding. Do not invent textbook facts if the context is insufficient; say what needs verification.
 
+Citation rules (these matter as much as the content):
+- Every factual sentence in "explanation" must end with a source marker like [S1] or [S2], matching the numbered sources below.
+- Use only source numbers that actually appear below. Never invent a citation.
+- If the sources do not cover part of the question, say so plainly in "explanation" instead of filling the gap from memory.
+- "story" and "narration_script" are creative and do not need markers, but must not contradict the sources.
+
 Retrieved sources:
 ---
 {rag_context}

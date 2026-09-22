@@ -97,10 +97,10 @@ def test_retrieve_filters_by_genre(rag):
 
 
 def test_get_context_text_formats_correctly(rag):
-    """get_context_text should return a formatted string with source labels."""
+    """Context uses [S1]-style labels, matching the citation markers the prompt asks for."""
     results = rag.retrieve("A thriller about secrets", top_k=2)
     context = rag.get_context_text(results)
-    assert "Source 1" in context, "Context text missing 'Source 1' label"
+    assert "[S1]" in context, "Context text missing '[S1]' citation label"
     assert len(context) > 50, "Context text is suspiciously short"
     print(f"  Context text length: {len(context)} chars")
 

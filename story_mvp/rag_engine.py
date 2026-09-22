@@ -6,6 +6,9 @@ from typing import List, Dict, Optional
 import faiss
 from sentence_transformers import SentenceTransformer
 
+from story_mvp.bm25 import BM25
+from story_mvp.reranker import CrossEncoderReranker, reciprocal_rank_fusion, rerank_enabled
+
 
 def _resolve_device() -> str:
     """Pick the embedding device. STORYTUTOR_DEVICE overrides autodetection."""
@@ -28,8 +31,14 @@ class StoryRAG:
         self.device = _resolve_device()
         self.embed_batch_size = int(os.environ.get("STORYTUTOR_EMBED_BATCH", "64"))
         self.max_seq_length = int(os.environ.get("STORYTUTOR_MAX_SEQ_LEN", "1024"))
+        # How many fused candidates survive to the rerank stage. Large enough
+        # that a correct chunk ranked poorly by either retriever alone still
+        # gets a second opinion; small enough that the cross-encoder stays cheap.
+        self.candidate_pool = int(os.environ.get("STORYTUTOR_CANDIDATE_POOL", "30"))
         self.model = None
         self.index = None
+        self.bm25: Optional[BM25] = None
+        self.reranker = CrossEncoderReranker(device=self.device) if rerank_enabled() else None
         self.documents: List[Dict] = []
         self._initialize()
 
@@ -42,6 +51,10 @@ class StoryRAG:
         index_path = os.path.join(self.index_dir, f"{index_slug}.index")
         signature_path = os.path.join(self.index_dir, f"{index_slug}.signature")
         dataset_signature = self._dataset_signature()
+
+        if self.documents:
+            print(f"Building BM25 index over {len(self.documents)} documents...")
+            self.bm25 = BM25([doc.get("text", "") for doc in self.documents])
 
         print(f"Loading embedding model {self.model_name} on {self.device}...")
         self.model = SentenceTransformer(self.model_name, device=self.device)
@@ -135,7 +148,7 @@ class StoryRAG:
         top_k: int = 3,
         filters: Optional[Dict[str, str]] = None,
     ) -> List[Dict]:
-        """Retrieves top-K relevant documents with metadata filters and keyword reranking."""
+        """Hybrid retrieval: dense + BM25, fused with RRF, then cross-encoder reranked."""
         if not self.index or not self.documents:
             return []
 
@@ -152,25 +165,56 @@ class StoryRAG:
         fetch_k = len(self.documents) if active_filters else min(len(self.documents), max(top_k * 8, 20))
         distances, indices = self.index.search(query_embedding, fetch_k)
 
-        results = []
+        # --- stage 1: dense ranking (filtered, best first) ---
+        dense_ranked: List[int] = []
+        dense_scores: Dict[int, float] = {}
         for distance, idx in zip(distances[0], indices[0]):
             if idx == -1:
                 continue
-            doc = self.documents[idx]
-
-            if supported_mode and doc.get("mode") != supported_mode and doc.get("mode"):
+            if not self._passes(self.documents[idx], supported_mode, supported_genre, active_filters):
                 continue
-            if supported_genre and doc.get("genre") != supported_genre and doc.get("genre"):
-                continue
-            if not self._matches_filters(doc, active_filters):
-                continue
+            dense_ranked.append(int(idx))
+            dense_scores[int(idx)] = float(distance)
 
-            scored_doc = dict(doc)
-            scored_doc["retrieval_score"] = self._hybrid_score(float(distance), query, doc)
-            scored_doc["retrieval_method"] = "hybrid_vector_keyword"
-            results.append(scored_doc)
+        # --- stage 2: BM25 ranking over the same filtered candidate set ---
+        allowed = {
+            i for i, doc in enumerate(self.documents)
+            if self._passes(doc, supported_mode, supported_genre, active_filters)
+        }
+        sparse_ranked = self.bm25.top_n(query, self.candidate_pool, allowed=allowed) if self.bm25 else []
 
-        return sorted(results, key=lambda item: item.get("retrieval_score", 0), reverse=True)[:top_k]
+        # --- stage 3: reciprocal rank fusion ---
+        fused = reciprocal_rank_fusion([dense_ranked, sparse_ranked])[: self.candidate_pool]
+        if not fused:
+            fused = dense_ranked[: self.candidate_pool]
+
+        candidates = []
+        for rank, idx in enumerate(fused):
+            doc = dict(self.documents[idx])
+            doc["dense_score"] = dense_scores.get(idx)
+            doc["fusion_rank"] = rank + 1
+            doc["retrieval_score"] = dense_scores.get(idx, 1.0 / (60 + rank + 1))
+            doc["retrieval_method"] = "hybrid_rrf"
+            candidates.append(doc)
+
+        # --- stage 4: cross-encoder rerank (opt-in) ---
+        if self.reranker is not None:
+            reranked = self.reranker.rerank(query, candidates, top_k)
+            if reranked is not None:
+                for doc in reranked:
+                    doc["retrieval_method"] = "hybrid_rrf_rerank"
+                    doc["retrieval_score"] = doc["rerank_score"]
+                return reranked
+
+        return candidates[:top_k]
+
+    def _passes(self, doc: Dict, supported_mode, supported_genre, active_filters) -> bool:
+        """Shared filter predicate for both the dense and the sparse stage."""
+        if supported_mode and doc.get("mode") != supported_mode and doc.get("mode"):
+            return False
+        if supported_genre and doc.get("genre") != supported_genre and doc.get("genre"):
+            return False
+        return self._matches_filters(doc, active_filters)
 
     def get_context_text(self, results: List[Dict]) -> str:
         """Formats the retrieved documents into a string for the prompt."""
@@ -180,7 +224,9 @@ class StoryRAG:
         context_parts = []
         for i, doc in enumerate(results, 1):
             source = self.source_summary(doc)
-            context_parts.append(f"Source {i} ({source}):\n{doc['text']}\n")
+            # Label as [S1], [S2]... so the marker the model is asked to emit
+            # is literally the label it sees, with no translation step.
+            context_parts.append(f"[S{i}] ({source}):\n{doc['text']}\n")
         
         return "\n".join(context_parts)
 
