@@ -256,6 +256,11 @@ class StoryRAG:
                     "source_file": doc.get("source_file") or doc.get("metadata", {}).get("source_file"),
                     "retrieval_score": doc.get("retrieval_score"),
                     "retrieval_method": doc.get("retrieval_method"),
+                    # Surface the per-stage scores so a citation shows *why* it
+                    # ranked where it did, not just that it was retrieved.
+                    "dense_score": doc.get("dense_score"),
+                    "fusion_rank": doc.get("fusion_rank"),
+                    "rerank_score": doc.get("rerank_score"),
                 }
             )
         return sources
