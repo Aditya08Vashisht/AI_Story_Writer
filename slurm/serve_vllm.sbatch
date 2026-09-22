@@ -14,15 +14,16 @@
 set -euo pipefail
 
 module load mamba/latest
-source activate storytutor
+source activate ${VLLM_ENV:-storytutor-vllm}
 
 export PROJ=${PROJ:-/scratch/$USER/storytutor}
 export HF_HOME=${HF_HOME:-/scratch/$USER/hf_cache}
 export TORCH_HOME=${TORCH_HOME:-/scratch/$USER/torch_cache}
 export TOKENIZERS_PARALLELISM=false
 
-# Apache-2.0. Drop to Qwen/Qwen3-8B-Instruct if this doesn't fit the node's VRAM.
-MODEL=${VLLM_MODEL:-Qwen/Qwen3-14B-Instruct}
+# Apache-2.0. Drop to Qwen/Qwen3-8B if this doesn't fit the node's VRAM.
+# NOTE: the Qwen3 series has no '-Instruct' suffix (unlike Qwen2.5).
+MODEL=${VLLM_MODEL:-Qwen/Qwen3-14B}
 PORT=${VLLM_PORT:-8000}
 
 cd "$PROJ"
@@ -38,6 +39,9 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 # Record where this server lives so a client on another node (e.g. the login
 # node running the Flask app or an eval script) knows where to point.
 ENDPOINT_FILE="$PROJ/slurm/vllm_endpoint.txt"
+# Don't leave a stale endpoint behind if the server dies -- a dead address
+# is worse than none, it makes clients fail with a confusing "connection refused".
+trap 'rm -f "$ENDPOINT_FILE"' EXIT
 echo "http://${NODE}:${PORT}/v1" > "$ENDPOINT_FILE"
 echo "endpoint    : $(cat "$ENDPOINT_FILE")"
 echo "written to  : $ENDPOINT_FILE"
