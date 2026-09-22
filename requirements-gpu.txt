@@ -1,0 +1,7 @@
+# GPU-only extras for Sol. Install into the same env as requirements.txt:
+#   pip install -r requirements.txt -r requirements-gpu.txt -r requirements-dev.txt
+#
+# torch is intentionally NOT pinned here -- vllm pulls in a matching CUDA
+# build automatically, and pinning here risks fighting that resolution.
+
+vllm>=0.6.0

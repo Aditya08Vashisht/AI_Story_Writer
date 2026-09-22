@@ -1,7 +1,7 @@
 """Compatibility LLM client for StoryTutor-MM.
 
 The public class name stays `StoryLLM`, but internally it now uses a free-first
-provider chain: Groq Qwen first, Ollama second.
+provider chain: Groq Qwen -> Sarvam (opt-in) -> self-hosted vLLM -> Ollama.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from story_mvp.model_clients import (
     GroqQwenClient,
     OllamaClient,
     SarvamClient,
+    VLLMClient,
     build_tutor_system_prompt,
     parse_json_response,
 )
@@ -33,6 +34,10 @@ class StoryLLM:
                 clients.append(SarvamClient())
             except Exception:
                 pass
+        try:
+            clients.append(VLLMClient())
+        except Exception:
+            pass
         clients.append(OllamaClient())
         self.client = FallbackModelClient(clients)
         self.last_provider = "none"

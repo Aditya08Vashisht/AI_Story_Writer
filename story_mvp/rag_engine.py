@@ -46,9 +46,12 @@ class StoryRAG:
         print(f"Loading embedding model {self.model_name} on {self.device}...")
         self.model = SentenceTransformer(self.model_name, device=self.device)
         # Chunks cap at 1800 characters, so bge-m3's 8192-token default would pad
-        # every batch to many times the length any chunk actually needs.
+        # every batch to many times the length any chunk actually needs. Only
+        # ever shrink this, never raise it past the model's own native limit --
+        # e.g. all-MiniLM-L6-v2 (used in tests) caps at 512 and errors on tensors
+        # sized for a longer sequence than its position embeddings support.
         if self.max_seq_length:
-            self.model.max_seq_length = self.max_seq_length
+            self.model.max_seq_length = min(self.max_seq_length, self.model.max_seq_length)
 
         if os.path.exists(index_path):
             stored_index = faiss.read_index(index_path)

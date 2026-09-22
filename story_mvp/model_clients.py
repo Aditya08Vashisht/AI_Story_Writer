@@ -83,6 +83,58 @@ class OllamaClient(BaseModelClient):
         return parse_json_response(message)
 
 
+class VLLMClient(BaseModelClient):
+    """Self-hosted, OpenAI-compatible endpoint served by `vllm serve`.
+
+    Runs on a Sol GPU node via slurm/serve_vllm.sbatch. vLLM's OpenAI-compatible
+    server accepts the same `response_format` JSON-mode flag Groq uses, so this
+    mirrors GroqQwenClient's request shape rather than Ollama's native /api/chat
+    shape. No API key is required by a default vLLM server; it still expects an
+    Authorization header, so a placeholder value is sent.
+    """
+
+    provider_name = "vllm"
+
+    def __init__(self, base_url: str = None, model: str = None, api_key: str = None):
+        self.base_url = (base_url or os.environ.get("VLLM_BASE_URL", "")).rstrip("/")
+        self.model = model or os.environ.get("VLLM_MODEL", "")
+        self.api_key = api_key or os.environ.get("VLLM_API_KEY", "EMPTY")
+        self.timeout = int(os.environ.get("VLLM_TIMEOUT", "120"))
+        if not self.base_url:
+            raise ModelClientError("VLLM_BASE_URL is not set.")
+        if not self.model:
+            raise ModelClientError("VLLM_MODEL is not set.")
+
+    def generate(self, request: StoryRequest, rag_context: str) -> Dict[str, Any]:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": build_tutor_system_prompt(request, rag_context)},
+                {"role": "user", "content": build_user_prompt(request)},
+            ],
+            "temperature": 0.6,
+            "max_tokens": 1800,
+            "response_format": {"type": "json_object"},
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise ModelClientError(f"vLLM request failed: {exc}") from exc
+        content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return parse_json_response(content)
+
+
 class SarvamClient(BaseModelClient):
     provider_name = "sarvam"
 
@@ -156,6 +208,10 @@ def create_model_client() -> FallbackModelClient:
             clients.append(SarvamClient())
         except Exception:
             pass
+    try:
+        clients.append(VLLMClient())
+    except Exception:
+        pass
     clients.append(OllamaClient())
     return FallbackModelClient(clients)
 
