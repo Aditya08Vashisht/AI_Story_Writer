@@ -18,17 +18,27 @@ from flask import Flask, jsonify, render_template, request
 from story_mvp.generator import generate_story_piece, generate_story_piece_ai
 from story_mvp.rag_chat import answer_question
 
-try:
-    from story_mvp.rag_engine import RetrievalService
-    from story_mvp.llm_client import StoryLLM
-    
-    DATASET_DIR = os.path.join(_PROJECT_ROOT, "knowledge_base")
-    RAG_ENGINE = RetrievalService(dataset_dir=DATASET_DIR)
-    LLM_CLIENT = StoryLLM()
-    AI_ENABLED = True
-except Exception as e:
-    print(f"Warning: Failed to initialize AI components - {e}")
+RAG_ENGINE = None
+LLM_CLIENT = None
+
+# Building the index at import time makes the module unimportable in under a
+# minute, which blocks route tests and UI iteration. This escape hatch lets
+# either run without loading an embedding model.
+if os.environ.get("STORYTUTOR_SKIP_AI_INIT", "").lower() in {"1", "true", "yes"}:
+    print("STORYTUTOR_SKIP_AI_INIT set - serving UI only, retrieval disabled.")
     AI_ENABLED = False
+else:
+    try:
+        from story_mvp.rag_engine import RetrievalService
+        from story_mvp.llm_client import StoryLLM
+
+        DATASET_DIR = os.path.join(_PROJECT_ROOT, "knowledge_base")
+        RAG_ENGINE = RetrievalService(dataset_dir=DATASET_DIR)
+        LLM_CLIENT = StoryLLM()
+        AI_ENABLED = True
+    except Exception as e:
+        print(f"Warning: Failed to initialize AI components - {e}")
+        AI_ENABLED = False
 
 
 app = Flask(
@@ -92,8 +102,14 @@ DEMO_PROMPTS = [
 @app.route("/chat")
 def index():
     """The product is a curriculum RAG chatbot. The old story-generator UI
-    has been removed -- it framed a tutor as a fiction engine."""
-    return render_template("chat.html")
+    has been removed -- it framed a tutor as a fiction engine.
+
+    Served as a static file, not a Jinja template: the page has no
+    server-side variables, and React inline styles use {{...}} -- which is
+    Jinja's own expression syntax, so rendering it as a template makes Jinja
+    try to evaluate JSX.
+    """
+    return app.send_static_file("chat.html")
 
 
 @app.route("/api/options")
