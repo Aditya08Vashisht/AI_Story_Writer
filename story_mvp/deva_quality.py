@@ -37,6 +37,18 @@ DEVA_CHAR = re.compile(rf"[{DEVA_ANY}]")
 UNUSABLE_THRESHOLD = 100.0
 
 
+# PyMuPDF sometimes emits a combining mark twice for certain Devanagari fonts
+# -- once for the glyph's visual position and once for its logical one -- so
+# "पुरी" comes out as "पुुरी". In valid Devanagari the same matra, anusvara or
+# virama never repeats consecutively, so collapsing runs is always safe.
+_DOUBLED_MARK = re.compile(rf"([{MATRA}{VIRAMA}{SIGNS}])\1+")
+
+
+def normalize_devanagari(text: str) -> str:
+    """Collapse repeated combining marks left behind by glyph-level extraction."""
+    return _DOUBLED_MARK.sub(r"\1", text)
+
+
 def score_text(text: str) -> dict:
     """Damage score per 1000 Devanagari characters. Clean text scores near 0."""
     deva_chars = len(DEVA_CHAR.findall(text))

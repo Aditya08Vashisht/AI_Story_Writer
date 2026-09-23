@@ -136,8 +136,18 @@ def main() -> int:
     args = parser.parse_args()
 
     chunks = json.loads(Path(args.chunks).read_text(encoding="utf-8"))
+    if not chunks:
+        raise RuntimeError(
+            f"{args.chunks} is empty. Refusing to overwrite the golden set with "
+            "nothing -- restore the corpus first (tar -xzf corpus.tar.gz)."
+        )
     all_records = build_records(chunks)
     print(f"candidate questions extracted: {len(all_records)}")
+    if not all_records:
+        raise RuntimeError(
+            "No questions could be extracted. Refusing to overwrite the existing "
+            "golden set with an empty one."
+        )
 
     sampled = stratified_sample(all_records, args.per_cell, args.seed)
     n_cells = len({(r["class_level"], r["subject"], r["language"]) for r in sampled})

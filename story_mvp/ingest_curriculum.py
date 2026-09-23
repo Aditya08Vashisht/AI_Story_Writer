@@ -11,10 +11,15 @@ from concurrent.futures import ProcessPoolExecutor
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Tuple
 
-from story_mvp.deva_quality import UNUSABLE_THRESHOLD, best_text_extractor
+from story_mvp.deva_quality import (
+    UNUSABLE_THRESHOLD,
+    best_text_extractor,
+    normalize_devanagari,
+)
 
 try:
     from pypdf import PdfReader
@@ -56,6 +61,18 @@ def ingest_curriculum_pdfs(
         raise RuntimeError("pypdf is required. Install dependencies with `pip install -r requirements.txt`.")
 
     pdf_paths = list(_iter_pdf_paths(source_dir))
+    # Refuse to "succeed" with nothing. Writing an empty corpus over a good one
+    # is silent data loss: downstream steps then rebuild an empty index and an
+    # empty golden set, and every failure looks like a different problem.
+    # The usual cause is that the PDFs were never transferred (they are
+    # gitignored at 2.5 GB), so say that rather than emitting zero chunks.
+    if not pdf_paths:
+        raise RuntimeError(
+            f"No PDFs found under {os.path.abspath(source_dir)}.\n"
+            "Refusing to overwrite the existing corpus with an empty one.\n"
+            "The NCERT PDFs are gitignored (2.5 GB) and must be transferred "
+            "separately, or the corpus rebuilt on a machine that has them."
+        )
     if limit > 0:
         pdf_paths = pdf_paths[:limit]
     output_chunks = []
@@ -230,7 +247,10 @@ def _split_text(text: str, chunk_chars: int, overlap_chars: int) -> Iterable[str
 
 
 def _clean_text(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "")).strip()
+    # Collapse the duplicated combining marks that glyph-level extraction
+    # leaves behind before any downstream step sees the text.
+    text = normalize_devanagari(str(text or ""))
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _chunk_id(metadata: PdfMetadata, page_index: int, chunk_index: int) -> str:
@@ -249,11 +269,29 @@ def _missing_expected_coverage(coverage: Dict[str, int]) -> List[str]:
     return missing
 
 
-def _write_json(path: str, payload) -> None:
+def _write_json(path: str, payload, attempts: int = 5) -> None:
     temp_path = f"{path}.tmp"
     with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
-    os.replace(temp_path, path)
+
+    # os.replace is atomic on POSIX, but on Windows it fails with
+    # PermissionError when anything else holds the destination open -- an
+    # antivirus scanner or search indexer sweeping a freshly written 25 MB
+    # file is enough. Those locks are transient, so retry before giving up.
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            os.replace(temp_path, path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.5 * (attempt + 1))
+
+    raise RuntimeError(
+        f"Could not replace {path} after {attempts} attempts: {last_error}. "
+        f"The new data is intact at {temp_path} -- close any program holding "
+        f"the file open (editor, viewer) and rename it manually."
+    )
 
 
 def main() -> None:
