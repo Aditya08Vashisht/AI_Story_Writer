@@ -14,10 +14,16 @@ import re
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Tuple
 
+from story_mvp.deva_quality import UNUSABLE_THRESHOLD, best_text_extractor
+
 try:
     from pypdf import PdfReader
 except Exception:  # pragma: no cover - handled at runtime for optional setup
     PdfReader = None
+
+# Chunks shorter than this carry no retrievable meaning and only add index
+# noise. The pre-fix corpus contained chunks as short as 3 characters.
+MIN_CHUNK_CHARS = 200
 
 
 LANGUAGE_ALIASES = {
@@ -152,14 +158,22 @@ def _chunks_from_pdf(
     chunk_chars: int,
     overlap_chars: int,
 ) -> List[Dict[str, object]]:
-    reader = PdfReader(pdf_path)
+    # Pick the extractor that produces the least-damaged Devanagari for THIS
+    # file. pypdf mangles most Hindi/Marathi NCERT PDFs (damage 80-240) where
+    # PyMuPDF reads them cleanly (3-30) -- see story_mvp/deva_quality.py.
+    pages, extractor, file_damage = best_text_extractor(pdf_path)
+    unusable = file_damage >= UNUSABLE_THRESHOLD
     chunks = []
 
-    for page_index, page in enumerate(reader.pages, 1):
-        text = _clean_text(page.extract_text() or "")
-        if not text:
+    for page_index, page_text in enumerate(pages, 1):
+        text = _clean_text(page_text)
+        # Drop fragments too short to carry meaning. The previous corpus had
+        # chunks as short as 3 characters, which only added index noise.
+        if len(text) < MIN_CHUNK_CHARS:
             continue
         for chunk_index, chunk_text in enumerate(_split_text(text, chunk_chars, overlap_chars), 1):
+            if len(chunk_text) < MIN_CHUNK_CHARS:
+                continue
             chunks.append(
                 {
                     "id": _chunk_id(metadata, page_index, chunk_index),
@@ -176,6 +190,11 @@ def _chunks_from_pdf(
                     "page_end": page_index,
                     "source_file": metadata.source_file,
                     "text": chunk_text,
+                    # Provenance for the extraction itself, so a bad chunk can
+                    # be traced to the extractor that produced it.
+                    "extractor": extractor,
+                    "extraction_damage": file_damage,
+                    "extraction_unusable": unusable,
                     "tags": [metadata.subject, metadata.language, f"class-{metadata.class_level}"],
                     "metadata": {
                         "class_level": metadata.class_level,
