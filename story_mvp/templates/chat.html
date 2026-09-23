@@ -172,6 +172,13 @@ textarea:focus{outline:none;border-color:var(--accent)}
 .stage .nm{flex:1}
 .stage .vl{color:var(--dim);font-size:11px}
 
+.cite{color:var(--accent);font-weight:600;cursor:pointer;font-size:.92em;padding:0 1px}
+.cite:hover{text-decoration:underline}
+.excerpt{margin-top:7px;padding:8px 10px;background:var(--bg);border-radius:7px;
+  font-size:11.5px;color:var(--dim);line-height:1.65;border-left:2px solid var(--line)}
+.srcbtn{margin-top:9px;background:none;border:1px solid var(--line);color:var(--dim);
+  border-radius:7px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600}
+.srcbtn:hover{color:var(--txt);border-color:var(--accent)}
 .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
   border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -197,93 +204,62 @@ const isDeva = s => /[ऀ-ॿ]/.test(s||'');
 function Badge({kind,children}){ return <span className={'pill '+(kind||'')}>{children}</span> }
 
 function Sources({list}){
-  if(!list || !list.length) return <p style={{color:'var(--dim)',fontSize:13}}>No sources returned.</p>;
+  if(!list || !list.length) return <p style={{color:'var(--dim)',fontSize:13}}>No sources matched.</p>;
   return list.map((s,i)=>(
     <div className="src" key={i}>
       <div className="src-h">
-        <span className="tag">S{i+1}</span>
+        <span className="tag">{s.marker||('S'+(i+1))}</span>
         {s.rerank_score!=null && <span className="tag g">reranked</span>}
         <span className="src-m">
-          {[s.class_level && 'Class '+s.class_level, s.subject, s.language].filter(Boolean).join(' · ')}
+          {[s.class_level&&'Class '+s.class_level, s.subject, s.language].filter(Boolean).join(' · ')}
         </span>
       </div>
       <div className="src-m">
-        {s.source_file ? s.source_file.split(/[\\/]/).pop() : (s.id||'curated knowledge base')}
-        {s.page_start ? ' · page '+s.page_start : ''}
-        {s.chapter ? ' · ch '+s.chapter : ''}
+        {s.source_file||s.id||'curated source'}
+        {s.chapter?' · ch '+s.chapter:''}{s.page?' · p'+s.page:''}
       </div>
+      {s.excerpt && <div className={'excerpt '+(isDeva(s.excerpt)?'deva':'')}>{s.excerpt}</div>}
       <div className="scores">
-        {s.retrieval_score!=null && <span>score <b>{Number(s.retrieval_score).toFixed(3)}</b></span>}
+        {s.score!=null && <span>score <b>{Number(s.score).toFixed(3)}</b></span>}
         {s.rerank_score!=null && <span>rerank <b>{Number(s.rerank_score).toFixed(3)}</b></span>}
-        {s.fusion_rank!=null && <span>fusion&nbsp;#<b>{s.fusion_rank}</b></span>}
-        {s.retrieval_method && <span><b>{s.retrieval_method}</b></span>}
       </div>
-    </div>
-  ));
-}
-
-function Quiz({items}){
-  const [picked,setPicked] = useState({});
-  if(!items || !items.length) return <p style={{color:'var(--dim)',fontSize:13}}>No quiz generated.</p>;
-  return items.map((q,qi)=>(
-    <div className="qz" key={qi}>
-      <div className={'qq '+(isDeva(q.question)?'deva':'')}>{q.question}</div>
-      {(q.options||[]).map((o,oi)=>{
-        const sel = picked[qi];
-        let cls = 'opt';
-        if(sel!==undefined){
-          if(o===q.answer) cls+=' right';
-          else if(oi===sel) cls+=' wrong';
-        }
-        return <div key={oi} className={cls+(isDeva(o)?' deva':'')}
-          onClick={()=>setPicked({...picked,[qi]:oi})}>{o}</div>;
-      })}
-      {picked[qi]!==undefined && q.explanation &&
-        <div className={'exp '+(isDeva(q.explanation)?'deva':'')}>{q.explanation}</div>}
     </div>
   ));
 }
 
 function Answer({d}){
-  const [tab,setTab] = useState('answer');
-  const nSrc = (d.retrieved_sources||[]).length;
-  const nQuiz = (d.quiz||[]).length;
+  const [showSrc,setShowSrc] = useState(false);
+  const srcs = d.sources||[];
   const provider = d.model_provider||'unknown';
-  const live = provider!=='deterministic' && provider!=='none';
-  const method = (d.retrieved_sources||[])[0]?.retrieval_method || '—';
-  const reranked = method.includes('rerank');
+  const live = !['none','passages_only','unknown'].includes(provider);
+  const method = d.retrieval_method||'—';
 
-  const text = {
-    answer: d.explanation || d.output || '',
-    story: d.story || d.output || '',
-  }[tab];
+  // Turn [S1] markers into clickable chips so a claim links to its source.
+  const parts = String(d.answer||'').split(/(\[S\d+\])/g);
 
   return (
     <div>
       <div className="badges">
-        <Badge kind={live?'ok':'warn'}>{live?'LLM: '+provider:'template fallback'}</Badge>
-        <Badge kind={reranked?'ok':''}>{method}</Badge>
-        <Badge>{nSrc} source{nSrc===1?'':'s'}</Badge>
-        {d.language && <Badge>{d.language}</Badge>}
+        {d.grounded===false && <Badge kind="warn">no matching sources</Badge>}
+        <Badge kind={live?'ok':'warn'}>{live?provider:(provider==='passages_only'?'passages only (no LLM)':provider)}</Badge>
+        {method!=='—' && <Badge kind={method.includes('rerank')?'ok':''}>{method}</Badge>}
+        <Badge>{srcs.length} source{srcs.length===1?'':'s'}</Badge>
       </div>
 
-      <div className="tabs">
-        <button className={'tab'+(tab==='answer'?' on':'')} onClick={()=>setTab('answer')}>Answer</button>
-        <button className={'tab'+(tab==='story'?' on':'')} onClick={()=>setTab('story')}>Story</button>
-        <button className={'tab'+(tab==='sources'?' on':'')} onClick={()=>setTab('sources')}>Sources ({nSrc})</button>
-        <button className={'tab'+(tab==='quiz'?' on':'')} onClick={()=>setTab('quiz')}>Quiz ({nQuiz})</button>
+      <div className={'bubble '+(isDeva(d.answer)?'deva':'')}>
+        {parts.map((p,i)=> /^\[S\d+\]$/.test(p)
+          ? <span key={i} className="cite" onClick={()=>setShowSrc(true)}>{p}</span>
+          : <span key={i}>{p}</span>)}
       </div>
 
-      {(tab==='answer'||tab==='story') &&
-        <div className={'bubble '+(isDeva(text)?'deva':'')}>{text||'(empty)'}</div>}
-      {tab==='sources' && <Sources list={d.retrieved_sources}/>}
-      {tab==='quiz' && <Quiz items={d.quiz}/>}
-
-      {tab==='answer' && d.learning_objective &&
-        <div className="src" style={{marginTop:10}}>
-          <div className="src-h"><span className="tag">GOAL</span></div>
-          <div className={'src-m '+(isDeva(d.learning_objective)?'deva':'')}>{d.learning_objective}</div>
-        </div>}
+      {srcs.length>0 && (
+        <>
+          <button className="srcbtn" onClick={()=>setShowSrc(!showSrc)}>
+            {showSrc?'Hide':'Show'} {srcs.length} source{srcs.length===1?'':'s'}
+          </button>
+          {showSrc && <div style={{marginTop:10}}><Sources list={srcs}/></div>}
+        </>
+      )}
     </div>
   );
 }
@@ -308,9 +284,9 @@ function App(){
     const L=o.lang||lang, C=o.cls||cls, S=o.sub||sub;
     setMsgs(m=>[...m,{role:'user',text:question,lang:L}]); setQ(''); setBusy(true);
     try{
-      const r = await fetch('/api/generate',{
+      const r = await fetch('/api/chat',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({idea:question,language:L,class_level:C,subject:S,mode:'expand',output_type:'explanation'})
+        body:JSON.stringify({question,language:L,class_level:C,subject:S})
       });
       const d = await r.json();
       setMsgs(m=>[...m,{role:'assistant',data:d}]);
@@ -320,8 +296,8 @@ function App(){
   };
 
   const last = [...msgs].reverse().find(m=>m.role==='assistant' && m.data)?.data;
-  const lastSrc = (last?.retrieved_sources||[])[0];
-  const method = lastSrc?.retrieval_method||'';
+  const lastSrc = (last?.sources||[])[0];
+  const method = last?.retrieval_method||'';
 
   return (
     <div className="app">
@@ -425,7 +401,7 @@ function App(){
             <div className="stage"><span className={'dot'+(method.includes('rrf')?' on':'')}></span><span className="nm">RRF fusion</span></div>
             <div className="stage"><span className={'dot'+(method.includes('rerank')?' on':'')}></span><span className="nm">Cross-encoder rerank</span>
               <span className="vl">{method.includes('rerank')?'on':'off'}</span></div>
-            <div className="stage"><span className={'dot'+(last&&!['deterministic','none'].includes(last.model_provider)?' on':'')}></span>
+            <div className="stage"><span className={'dot'+(last&&!['none','passages_only'].includes(last.model_provider)?' on':'')}></span>
               <span className="nm">LLM generation</span>
               <span className="vl">{last?.model_provider||'—'}</span></div>
           </div>
@@ -433,11 +409,11 @@ function App(){
           {last && (
             <div className="pipe">
               <h3>Last query</h3>
-              <div className="stat"><span>Sources</span><span>{(last.retrieved_sources||[]).length}</span></div>
+              <div className="stat"><span>Sources</span><span>{(last.sources||[]).length}</span></div>
               <div className="stat"><span>Method</span><span>{method||'—'}</span></div>
-              {lastSrc?.retrieval_score!=null &&
-                <div className="stat"><span>Top score</span><span>{Number(lastSrc.retrieval_score).toFixed(3)}</span></div>}
-              <div className="stat"><span>Free-first</span><span>{last.free_first?'yes':'—'}</span></div>
+              {lastSrc?.score!=null &&
+                <div className="stat"><span>Top score</span><span>{Number(lastSrc.score).toFixed(3)}</span></div>}
+              <div className="stat"><span>Grounded</span><span>{last.grounded?'yes':'no'}</span></div>
             </div>
           )}
         </div>

@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, jsonify, render_template, request
 
-from story_mvp.generator import GENRES, MODE_TITLES, TONES, generate_story_piece, generate_story_piece_ai
+from story_mvp.generator import generate_story_piece, generate_story_piece_ai
+from story_mvp.rag_chat import answer_question
 
 try:
     from story_mvp.rag_engine import RetrievalService
@@ -88,20 +89,10 @@ DEMO_PROMPTS = [
 
 
 @app.route("/")
-def index():
-    return render_template(
-        "index.html",
-        genres=list(GENRES.keys()),
-        tones=list(TONES.keys()),
-        modes=MODE_TITLES,
-    )
-
-
 @app.route("/chat")
-def chat():
-    """React chat UI. Served as a single template with React from CDN -- no
-    build step, so it works over a forwarded port on a cluster node without a
-    node/npm toolchain or a second dev server to tunnel."""
+def index():
+    """The product is a curriculum RAG chatbot. The old story-generator UI
+    has been removed -- it framed a tutor as a fiction engine."""
     return render_template("chat.html")
 
 
@@ -135,6 +126,20 @@ def generate():
     else:
         result = generate_story_piece(payload)
         
+    result["generated_at"] = datetime.now().isoformat(timespec="seconds")
+    return jsonify(result)
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat_api():
+    """Question in, grounded answer + citations out. No story parameters."""
+    payload = request.get_json(silent=True) or {}
+    if not AI_ENABLED:
+        return jsonify({
+            "answer": "The retrieval engine is not available. Check the server log.",
+            "sources": [], "grounded": False, "model_provider": "none",
+        }), 503
+    result = answer_question(payload, RAG_ENGINE, LLM_CLIENT)
     result["generated_at"] = datetime.now().isoformat(timespec="seconds")
     return jsonify(result)
 

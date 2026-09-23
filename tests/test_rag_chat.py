@@ -1,0 +1,106 @@
+"""Tests for the RAG chat pipeline.
+
+These run offline: retrieval is stubbed, so no model downloads and no network.
+"""
+
+from story_mvp.rag_chat import (
+    MIN_EVIDENCE_SCORE,
+    answer_question,
+    build_chat_prompt,
+    normalize_chat_request,
+)
+
+
+class FakeRAG:
+    """Returns whatever it is given, recording the filters it was called with."""
+
+    def __init__(self, results):
+        self.results = results
+        self.last_filters = None
+
+    def retrieve(self, query, filters=None, top_k=5):
+        self.last_filters = filters
+        return self.results[:top_k]
+
+
+def chunk(score=0.8, **kw):
+    base = {
+        "id": "6_science_english_Ch-8_p3_c1",
+        "text": "Heat energy moves from the hot water to the cooler spoon until both reach the same temperature.",
+        "class_level": "6", "subject": "science", "language": "english",
+        "chapter": "8", "page_start": 3, "source_file": "/x/Ch-8_Science_Class6.pdf",
+        "retrieval_score": score, "retrieval_method": "hybrid_rrf_rerank",
+    }
+    base.update(kw)
+    return base
+
+
+def test_normalize_accepts_several_question_keys():
+    for key in ("question", "idea", "message"):
+        assert normalize_chat_request({key: "why is the sky blue"})["question"] == "why is the sky blue"
+
+
+def test_normalize_rejects_unknown_enum_values():
+    r = normalize_chat_request({"question": "q", "language": "klingon", "class_level": "12", "subject": "art"})
+    assert r["language"] == "english"
+    assert r["class_level"] == ""
+    assert r["subject"] == ""
+
+
+def test_normalize_maps_sst_aliases():
+    assert normalize_chat_request({"question": "q", "subject": "sst"})["subject"] == "social_science"
+    assert normalize_chat_request({"question": "q", "subject": "social science"})["subject"] == "social_science"
+
+
+def test_prompt_carries_no_story_concepts():
+    """The whole point of this module: a tutor, not a fiction engine."""
+    p = build_chat_prompt(normalize_chat_request({"question": "q", "language": "marathi"}), "[S1] ...")
+    lowered = p.lower()
+    for banned in ("genre", "thriller", "story", "cliffhanger", "character", "narrat"):
+        assert banned not in lowered, f"story concept leaked into the chat prompt: {banned}"
+    assert "Marathi" in p
+    assert "[S1]" in p
+
+
+def test_empty_question_short_circuits():
+    out = answer_question({"question": "   "}, FakeRAG([chunk()]))
+    assert out["grounded"] is False
+    assert out["sources"] == []
+
+
+def test_weak_evidence_refuses_rather_than_guesses():
+    weak = chunk(score=MIN_EVIDENCE_SCORE - 0.05)
+    out = answer_question({"question": "explain photosynthesis"}, FakeRAG([weak]))
+    assert out["grounded"] is False
+    assert "could not find" in out["answer"].lower()
+
+
+def test_refusal_is_written_in_the_asked_language():
+    weak = chunk(score=0.01, language="marathi")
+    out = answer_question({"question": "प्रश्न", "language": "marathi"}, FakeRAG([weak]))
+    # Devanagari, not an English refusal shown to a Marathi learner.
+    assert any("ऀ" <= ch <= "ॿ" for ch in out["answer"])
+
+
+def test_without_an_llm_it_returns_real_passages_not_invented_prose():
+    """Honest degradation. The old engine wrote thriller fiction here."""
+    out = answer_question({"question": "how does heat move"}, FakeRAG([chunk()]), llm_client=None)
+    assert out["grounded"] is True
+    assert out["model_provider"] == "passages_only"
+    assert "Heat energy moves from the hot water" in out["answer"]
+    assert "apartment" not in out["answer"].lower()
+
+
+def test_citations_expose_provenance():
+    out = answer_question({"question": "how does heat move"}, FakeRAG([chunk()]))
+    s = out["sources"][0]
+    assert s["marker"] == "S1"
+    assert s["source_file"] == "Ch-8_Science_Class6.pdf"   # basename, not a full path
+    assert s["page"] == 3
+    assert s["excerpt"]
+
+
+def test_filters_are_passed_through_to_retrieval():
+    rag = FakeRAG([chunk()])
+    answer_question({"question": "q", "class_level": "7", "subject": "sst", "language": "hindi"}, rag)
+    assert rag.last_filters == {"class_level": "7", "subject": "social_science", "language": "hindi"}
