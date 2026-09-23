@@ -29,3 +29,7 @@ renders/
 # OS
 .DS_Store
 Thumbs.db
+
+# Regenerated diagnostics - would block every git pull on Sol after a local run.
+# Published scorecards in eval/reports/ are committed explicitly with git add -f.
+eval/reports/corpus_damage.json
