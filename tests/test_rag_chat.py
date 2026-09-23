@@ -66,6 +66,7 @@ def test_empty_question_short_circuits():
     out = answer_question({"question": "   "}, FakeRAG([chunk()]))
     assert out["grounded"] is False
     assert out["sources"] == []
+    assert out["intent"] == "greeting"
 
 
 def test_weak_evidence_refuses_rather_than_guesses():
@@ -102,7 +103,7 @@ def test_citations_expose_provenance():
 
 def test_filters_are_passed_through_to_retrieval():
     rag = FakeRAG([chunk()])
-    answer_question({"question": "q", "class_level": "7", "subject": "sst", "language": "hindi"}, rag)
+    answer_question({"question": "what are the main crops grown in India?", "class_level": "7", "subject": "sst", "language": "hindi"}, rag)
     assert rag.last_filters == {"class_level": "7", "subject": "social_science", "language": "hindi"}
 
 
@@ -129,7 +130,7 @@ def test_full_chain_retrieval_to_grounded_answer(monkeypatch):
 
     provider = FakeOllama('{"answer": "Heat moves from hot water into the spoon [S1]."}')
 
-    def fake_call(p, system, user):
+    def fake_call(p, system, user, history=None):
         p.seen_system = system
         return p.reply
 
@@ -153,11 +154,11 @@ def test_full_chain_retrieval_to_grounded_answer(monkeypatch):
 def test_a_failing_model_degrades_to_passages(monkeypatch):
     import story_mvp.rag_chat as rc
 
-    def boom(p, system, user):
+    def boom(p, system, user, history=None):
         raise RuntimeError("connection refused")
 
     monkeypatch.setattr(rc, "_call_provider", boom)
-    out = rc.answer_question({"question": "q"}, FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
+    out = rc.answer_question({"question": "how does heat move between objects?"}, FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
     assert out["model_provider"] == "passages_only"
     assert "Heat energy moves" in out["answer"]
 
@@ -166,7 +167,7 @@ def test_non_json_reply_is_still_usable(monkeypatch):
     """Small models sometimes ignore the JSON instruction. Take the prose."""
     import story_mvp.rag_chat as rc
 
-    monkeypatch.setattr(rc, "_call_provider", lambda p, s, u: "Heat flows from hot to cold [S1].")
-    out = rc.answer_question({"question": "q"}, FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
+    monkeypatch.setattr(rc, "_call_provider", lambda p, s, u, h=None: "Heat flows from hot to cold [S1].")
+    out = rc.answer_question({"question": "how does heat move between objects?"}, FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
     assert out["model_provider"] == "ollama"
     assert "Heat flows from hot to cold" in out["answer"]

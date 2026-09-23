@@ -20,6 +20,16 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from story_mvp import guardrails
+from story_mvp.intent import (
+    CAPABILITY,
+    GREETING,
+    QUESTION,
+    SMALLTALK,
+    classify,
+    conversational_reply,
+)
+
 LANGUAGES = {"english", "hindi", "marathi"}
 CLASS_LEVELS = {"6", "7", "8"}
 SUBJECTS = {"science", "social_science"}
@@ -49,6 +59,18 @@ def normalize_chat_request(payload: Dict[str, Any]) -> Dict[str, str]:
         "class_level": _choice(payload.get("class_level"), CLASS_LEVELS, ""),
         "subject": _choice(payload.get("subject"), SUBJECTS, ""),
     }
+
+
+def _recent_history(payload: Dict[str, Any], turns: int = 4) -> List[Dict[str, str]]:
+    """Last few turns, so follow-ups like 'why?' have something to refer to."""
+    raw = payload.get("history") or []
+    out = []
+    for item in raw[-turns:]:
+        role = item.get("role")
+        content = _clean(item.get("content"), 600)
+        if role in {"user", "assistant"} and content:
+            out.append({"role": role, "content": content})
+    return out
 
 
 def build_chat_prompt(request: Dict[str, str], context: str) -> str:
@@ -163,14 +185,35 @@ def answer_question(
 ) -> Dict[str, Any]:
     """Question in, grounded answer + citations out."""
     request = normalize_chat_request(payload)
+    history = _recent_history(payload)
 
     if not request["question"]:
         return {
-            "answer": "Please ask a question.",
-            "sources": [],
-            "grounded": False,
-            "model_provider": "none",
-            "retrieval_method": None,
+            "answer": conversational_reply(GREETING, request["language"]),
+            "sources": [], "grounded": False, "model_provider": "conversational",
+            "retrieval_method": None, "intent": GREETING,
+            **request,
+        }
+
+    # --- guardrail: input ---
+    allowed, reason, guard_meta = guardrails.check_input(request["question"])
+    if not allowed:
+        return {
+            "answer": guardrails.refusal_message(reason, request["language"]),
+            "sources": [], "grounded": False, "model_provider": "guardrail",
+            "retrieval_method": None, "intent": "blocked", "blocked_reason": reason,
+            **request,
+        }
+    if guard_meta["pii_types"]:
+        request["question"] = guardrails.redact_pii(request["question"])
+
+    # --- route: not every message deserves a retrieval ---
+    intent = classify(request["question"])
+    if intent != QUESTION:
+        return {
+            "answer": conversational_reply(intent, request["language"]),
+            "sources": [], "grounded": True, "model_provider": "conversational",
+            "retrieval_method": None, "intent": intent,
             **request,
         }
 
@@ -192,6 +235,7 @@ def answer_question(
             "grounded": False,
             "model_provider": "none",
             "retrieval_method": retrieval_method,
+            "intent": QUESTION,
             **request,
         }
 
@@ -199,14 +243,20 @@ def answer_question(
 
     if llm_client is not None:
         try:
-            answer = _generate(llm_client, request, context)
+            answer = _generate(llm_client, request, context, history)
             if answer:
+                checked = guardrails.check_output(answer, strong)
                 return {
-                    "answer": answer,
+                    "answer": checked["answer"],
                     "sources": _citations(strong),
                     "grounded": True,
                     "model_provider": getattr(llm_client, "last_provider", "unknown"),
                     "retrieval_method": retrieval_method,
+                    "intent": QUESTION,
+                    "groundedness": checked["groundedness"],
+                    "low_groundedness": checked["low_groundedness"],
+                    "citations_used": checked["citations_used"],
+                    "invented_citations": checked["invented_citations"],
                     **request,
                 }
         except Exception as exc:  # noqa: BLE001 - any model failure degrades the same way
@@ -218,11 +268,13 @@ def answer_question(
         "grounded": True,
         "model_provider": "passages_only",
         "retrieval_method": retrieval_method,
+        "intent": QUESTION,
         **request,
     }
 
 
-def _generate(llm_client, request: Dict[str, str], context: str) -> Optional[str]:
+def _generate(llm_client, request: Dict[str, str], context: str,
+              history: List[Dict[str, str]] = None) -> Optional[str]:
     """Call the provider chain with a chat-shaped prompt."""
     from story_mvp.model_clients import parse_json_response
 
@@ -232,7 +284,7 @@ def _generate(llm_client, request: Dict[str, str], context: str) -> Optional[str
     client = getattr(llm_client, "client", llm_client)
     for provider in getattr(client, "clients", [client]):
         try:
-            raw = _call_provider(provider, system, user)
+            raw = _call_provider(provider, system, user, history)
         except Exception as exc:  # noqa: BLE001
             print(f"chat: {getattr(provider, 'provider_name', '?')} failed - {exc}")
             continue
@@ -248,13 +300,16 @@ def _generate(llm_client, request: Dict[str, str], context: str) -> Optional[str
     return None
 
 
-def _call_provider(provider, system: str, user: str) -> str:
+def _call_provider(provider, system: str, user: str,
+                   history: List[Dict[str, str]] = None) -> str:
     """Send one chat completion. Providers differ only in transport shape."""
     import json
     import urllib.request
 
     name = getattr(provider, "provider_name", "")
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    messages = [{"role": "system", "content": system}]
+    messages.extend(history or [])
+    messages.append({"role": "user", "content": user})
 
     if name == "groq":
         completion = provider.client.chat.completions.create(
