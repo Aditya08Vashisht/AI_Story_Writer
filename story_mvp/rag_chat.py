@@ -26,7 +26,7 @@ from story_mvp.intent import (
     GREETING,
     QUESTION,
     SMALLTALK,
-    classify,
+    classify_lexical,
     conversational_reply,
 )
 
@@ -74,30 +74,56 @@ def _recent_history(payload: Dict[str, Any], turns: int = 4) -> List[Dict[str, s
 
 
 def build_chat_prompt(request: Dict[str, str], context: str) -> str:
+    """One prompt for every kind of message.
+
+    Deliberately not preceded by a classifier. The model can see whether the
+    student is greeting it, asking what it does, or asking a curriculum
+    question -- and it handles mixed intent ("hi, explain photosynthesis")
+    that no router could split cleanly. Retrieval runs either way, because it
+    costs ~50ms and the model can simply ignore irrelevant sources.
+    """
     language = LANGUAGE_NAMES.get(request["language"], "English")
     level = f"Class {request['class_level']}" if request["class_level"] else "Class 6-8"
-    subject = request["subject"].replace("_", " ") if request["subject"] else "Science or Social Science"
+    subject = request["subject"].replace("_", " ") if request["subject"] else "Science and Social Science"
 
-    return f"""You are a tutor for Indian school students studying the NCERT {subject} curriculum.
+    sources_block = context.strip() or "(no relevant textbook passages were found)"
 
-Answer the student's question using ONLY the numbered sources below.
+    return f"""You are StoryTutor, a warm and patient tutor for Indian school students
+studying the NCERT {subject} curriculum for classes 6 to 8.
 
-Rules:
-- Write your answer in {language}.
-- Pitch it at {level} level: short sentences, plain words, concrete examples.
-- End every factual sentence with its source marker, like [S1] or [S2].
-- Use only source numbers that appear below. Never invent a citation.
-- If the sources do not contain the answer, say exactly that and name what is
-  missing. Do not fill the gap from your own knowledge.
-- 2 to 4 short paragraphs. No preamble, no sign-off. Explain the concept
-  directly; do not invent people, dialogue or fictional scenarios.
+Always reply in {language}, pitched at {level}: short sentences, plain words,
+concrete examples.
 
-Sources:
+Below are textbook passages retrieved for whatever the student just said. They
+may or may not be relevant -- judge that yourself.
+
+Decide how to respond:
+
+- If the student is greeting you, thanking you, or making small talk: reply
+  naturally and briefly, then invite them to ask something from their
+  textbook. Ignore the passages entirely.
+
+- If they ask what you are or what you can do: explain that you answer
+  questions from the NCERT class 6-8 Science and Social Science books in
+  English, Hindi and Marathi, always showing which page an answer came from.
+
+- If they ask a curriculum question AND the passages cover it: answer from the
+  passages only. End every factual sentence with its source marker, like [S1]
+  or [S2]. Use only source numbers that appear below -- never invent one.
+
+- If they ask a curriculum question the passages do NOT cover: say so plainly,
+  name what seems to be missing, and suggest they pick the right class and
+  subject. Do not answer from your own knowledge.
+
+Never invent a citation. Never invent people, dialogue or fictional scenarios.
+Keep answers to 2-4 short paragraphs.
+
+Textbook passages:
 ---
-{context}
+{sources_block}
 ---
 
-Return only valid JSON: {{"answer": "your answer here"}}"""
+Return only valid JSON: {{"answer": "your reply here"}}"""
 
 
 def _source_score(doc: Dict[str, Any]) -> float:
@@ -207,15 +233,9 @@ def answer_question(
     if guard_meta["pii_types"]:
         request["question"] = guardrails.redact_pii(request["question"])
 
-    # --- route: not every message deserves a retrieval ---
-    intent = classify(request["question"])
-    if intent != QUESTION:
-        return {
-            "answer": conversational_reply(intent, request["language"]),
-            "sources": [], "grounded": True, "model_provider": "conversational",
-            "retrieval_method": None, "intent": intent,
-            **request,
-        }
+    # Routing is the model's job (see build_chat_prompt). A classifier only
+    # runs when no model is reachable, so the fallback still greets sensibly.
+    semantic = getattr(rag_engine, "intent_classifier", None)
 
     filters = {
         "class_level": request["class_level"],
@@ -226,6 +246,43 @@ def answer_question(
 
     strong = [doc for doc in results if _source_score(doc) >= MIN_EVIDENCE_SCORE]
     retrieval_method = results[0].get("retrieval_method") if results else None
+
+    # With a model available, hand everything to it -- including greetings.
+    if llm_client is not None:
+        try:
+            answer = _generate(llm_client, request, _format_sources(strong), history)
+            if answer:
+                checked = guardrails.check_output(answer, strong)
+                return {
+                    "answer": checked["answer"],
+                    "sources": _citations(strong),
+                    "grounded": bool(strong),
+                    "model_provider": getattr(llm_client, "last_provider", "unknown"),
+                    "retrieval_method": retrieval_method,
+                    "intent": "model_routed",
+                    "groundedness": checked["groundedness"],
+                    "low_groundedness": checked["low_groundedness"],
+                    "citations_used": checked["citations_used"],
+                    "invented_citations": checked["invented_citations"],
+                    **request,
+                }
+        except Exception as exc:  # noqa: BLE001
+            print(f"chat: generation failed, falling back - {exc}")
+
+    # --- no model: classify semantically so a greeting still gets a greeting ---
+    if semantic is not None:
+        intent, confidence = semantic.classify(request["question"])
+    else:
+        intent, confidence = classify_lexical(request["question"]), 0.0
+
+    if intent != QUESTION:
+        return {
+            "answer": conversational_reply(intent, request["language"]),
+            "sources": [], "grounded": True, "model_provider": "conversational",
+            "retrieval_method": None, "intent": intent,
+            "intent_confidence": round(confidence, 3),
+            **request,
+        }
 
     # Evidence gate: refuse rather than guess when retrieval found nothing usable.
     if not strong:
@@ -238,29 +295,6 @@ def answer_question(
             "intent": QUESTION,
             **request,
         }
-
-    context = _format_sources(strong)
-
-    if llm_client is not None:
-        try:
-            answer = _generate(llm_client, request, context, history)
-            if answer:
-                checked = guardrails.check_output(answer, strong)
-                return {
-                    "answer": checked["answer"],
-                    "sources": _citations(strong),
-                    "grounded": True,
-                    "model_provider": getattr(llm_client, "last_provider", "unknown"),
-                    "retrieval_method": retrieval_method,
-                    "intent": QUESTION,
-                    "groundedness": checked["groundedness"],
-                    "low_groundedness": checked["low_groundedness"],
-                    "citations_used": checked["citations_used"],
-                    "invented_citations": checked["invented_citations"],
-                    **request,
-                }
-        except Exception as exc:  # noqa: BLE001 - any model failure degrades the same way
-            print(f"chat: generation failed, returning passages instead - {exc}")
 
     return {
         "answer": _passages_fallback(request, strong),

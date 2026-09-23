@@ -55,7 +55,8 @@ def test_normalize_maps_sst_aliases():
 def test_prompt_carries_no_story_concepts():
     """The whole point of this module: a tutor, not a fiction engine."""
     p = build_chat_prompt(normalize_chat_request({"question": "q", "language": "marathi"}), "[S1] ...")
-    lowered = p.lower()
+    # "StoryTutor" is the product's name, not a story-generation concept.
+    lowered = p.lower().replace("storytutor", "")
     for banned in ("genre", "thriller", "story", "cliffhanger", "character", "narrat"):
         assert banned not in lowered, f"story concept leaked into the chat prompt: {banned}"
     assert "Marathi" in p

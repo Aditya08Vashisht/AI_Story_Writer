@@ -7,6 +7,7 @@ import faiss
 from sentence_transformers import SentenceTransformer
 
 from story_mvp.bm25 import BM25
+from story_mvp.intent import SemanticIntent
 from story_mvp.reranker import CrossEncoderReranker, reciprocal_rank_fusion, rerank_enabled
 
 
@@ -65,6 +66,10 @@ class StoryRAG:
         # sized for a longer sequence than its position embeddings support.
         if self.max_seq_length:
             self.model.max_seq_length = min(self.max_seq_length, self.model.max_seq_length)
+
+        # Intent understanding rides on the embedding model already in memory,
+        # so semantic routing costs one extra encode rather than a second model.
+        self.intent_classifier = SemanticIntent(self.model)
 
         if os.path.exists(index_path):
             stored_index = faiss.read_index(index_path)
