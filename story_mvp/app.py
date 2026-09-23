@@ -97,6 +97,14 @@ def index():
     )
 
 
+@app.route("/chat")
+def chat():
+    """React chat UI. Served as a single template with React from CDN -- no
+    build step, so it works over a forwarded port on a cluster node without a
+    node/npm toolchain or a second dev server to tunnel."""
+    return render_template("chat.html")
+
+
 @app.route("/api/options")
 def options():
     return jsonify(
