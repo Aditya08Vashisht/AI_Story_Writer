@@ -53,8 +53,15 @@ class OllamaClient(BaseModelClient):
     provider_name = "ollama"
 
     def __init__(self, model: str = None, host: str = None):
-        self.model = model or os.environ.get("OLLAMA_MODEL", "qwen3:1.7b")
+        # qwen3:8b is the smallest model in this family that reliably emits
+        # valid JSON and handles Hindi/Marathi. The old 1.7b default was a
+        # placeholder and produces unusable answers for this task.
+        self.model = model or os.environ.get("OLLAMA_MODEL", "qwen3:8b")
         self.host = (host or os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")).rstrip("/")
+        # 30s was tuned for a tiny model. An 8B model generating a grounded
+        # multi-paragraph answer routinely exceeds it, and every timeout looks
+        # identical to "no model reachable".
+        self.timeout = int(os.environ.get("OLLAMA_TIMEOUT", "180"))
 
     def generate(self, request: StoryRequest, rag_context: str) -> Dict[str, Any]:
         payload = {
@@ -75,7 +82,7 @@ class OllamaClient(BaseModelClient):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as response:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise ModelClientError(f"Ollama request failed: {exc}") from exc

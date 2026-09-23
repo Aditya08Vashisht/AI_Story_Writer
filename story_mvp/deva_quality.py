@@ -43,9 +43,32 @@ UNUSABLE_THRESHOLD = 100.0
 # virama never repeats consecutively, so collapsing runs is always safe.
 _DOUBLED_MARK = re.compile(rf"([{MATRA}{VIRAMA}{SIGNS}])\1+")
 
+# Some fonts map a glyph to a Latin codepoint or U+FFFD instead of its
+# Devanagari one, wedging a stray character inside a consonant cluster:
+#   विdषय -> विषय,  जिKया -> क्रिया,  लोकां2ना -> लोकांना
+# A single Latin letter, digit or replacement char with Devanagari on BOTH
+# sides is always an artifact -- no Indic orthography produces one, and a
+# legitimate number ("कक्षा 8") is space-separated, so it never matches.
+_INTRUDER = re.compile(rf"(?<=[{DEVA_ANY}])[A-Za-z0-9�](?=[{DEVA_ANY}])")
+# A matra, virama or anusvara can only attach to a Devanagari consonant, so a
+# Latin character directly after one is an artifact wherever it sits --
+# including at a word boundary, where the sandwich rule above cannot see it
+# ("आणिR इतर" -> "आणि इतर"). Space-separated numbers never match, since the
+# lookbehind requires the mark to be immediately adjacent.
+_INTRUDER_AFTER_MARK = re.compile(rf"(?<=[{MATRA}{VIRAMA}{SIGNS}])[A-Za-z0-9�]")
+# U+FFFD adjacent to Devanagari on either side is never meaningful.
+_ORPHAN_FFFD = re.compile(rf"(?<=[{DEVA_ANY}])�|�(?=[{DEVA_ANY}])")
+
 
 def normalize_devanagari(text: str) -> str:
-    """Collapse repeated combining marks left behind by glyph-level extraction."""
+    """Repair the two artifacts glyph-level extraction leaves in Devanagari.
+
+    1. stray Latin/digit/replacement chars wedged inside clusters
+    2. combining marks emitted twice (पुुरी -> पुरी)
+    """
+    text = _INTRUDER.sub("", text)
+    text = _INTRUDER_AFTER_MARK.sub("", text)
+    text = _ORPHAN_FFFD.sub("", text)
     return _DOUBLED_MARK.sub(r"\1", text)
 
 

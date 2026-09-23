@@ -104,3 +104,69 @@ def test_filters_are_passed_through_to_retrieval():
     rag = FakeRAG([chunk()])
     answer_question({"question": "q", "class_level": "7", "subject": "sst", "language": "hindi"}, rag)
     assert rag.last_filters == {"class_level": "7", "subject": "social_science", "language": "hindi"}
+
+
+class FakeOllama:
+    """Stands in for a live Ollama server, matching the provider duck-type."""
+
+    provider_name = "ollama"
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.seen_system = None
+
+
+class FakeLLM:
+    def __init__(self, provider):
+        self.client = type("chain", (), {"clients": [provider], "last_provider": "none"})()
+        self.last_provider = "none"
+
+
+def test_full_chain_retrieval_to_grounded_answer(monkeypatch):
+    """The integration that matters: retrieved chunks reach the model, and its
+    answer comes back with citations and the real provider name attached."""
+    import story_mvp.rag_chat as rc
+
+    provider = FakeOllama('{"answer": "Heat moves from hot water into the spoon [S1]."}')
+
+    def fake_call(p, system, user):
+        p.seen_system = system
+        return p.reply
+
+    monkeypatch.setattr(rc, "_call_provider", fake_call)
+
+    out = rc.answer_question(
+        {"question": "how does heat move", "class_level": "6", "subject": "science"},
+        FakeRAG([chunk()]),
+        FakeLLM(provider),
+    )
+
+    assert out["grounded"] is True
+    assert out["model_provider"] == "ollama"
+    assert "[S1]" in out["answer"]
+    assert out["sources"][0]["page"] == 3
+    # the retrieved passage must actually be in the prompt the model saw
+    assert "Heat energy moves from the hot water" in provider.seen_system
+    assert "[S1]" in provider.seen_system
+
+
+def test_a_failing_model_degrades_to_passages(monkeypatch):
+    import story_mvp.rag_chat as rc
+
+    def boom(p, system, user):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(rc, "_call_provider", boom)
+    out = rc.answer_question({"question": "q"}, FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
+    assert out["model_provider"] == "passages_only"
+    assert "Heat energy moves" in out["answer"]
+
+
+def test_non_json_reply_is_still_usable(monkeypatch):
+    """Small models sometimes ignore the JSON instruction. Take the prose."""
+    import story_mvp.rag_chat as rc
+
+    monkeypatch.setattr(rc, "_call_provider", lambda p, s, u: "Heat flows from hot to cold [S1].")
+    out = rc.answer_question({"question": "q"}, FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
+    assert out["model_provider"] == "ollama"
+    assert "Heat flows from hot to cold" in out["answer"]
