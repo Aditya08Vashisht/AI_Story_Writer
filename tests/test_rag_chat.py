@@ -204,3 +204,49 @@ def test_non_json_reply_is_still_usable(monkeypatch):
     out = rc.answer_question({"question": "how does heat move between objects?"}, FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
     assert out["model_provider"] == "ollama"
     assert "Heat flows from hot to cold" in out["answer"]
+
+
+def test_no_sources_means_the_model_is_never_offered_the_chance_to_answer(monkeypatch):
+    """Observed in production: 'who was mahatma gandhi' returned a full answer
+    with zero retrieved sources. Instruction-following is not a safety
+    mechanism at 7B, so with no evidence the model gets a prompt that contains
+    no passages and permits only a greeting, a capability reply, or a refusal.
+    """
+    import story_mvp.rag_chat as rc
+
+    seen = {}
+
+    def capture(p, system, user, history=None):
+        seen["system"] = system
+        return '{"answer": "I could not find that in those books."}'
+
+    monkeypatch.setattr(rc, "_call_provider", capture)
+
+    # every result scores below the evidence threshold
+    weak = chunk(score=0.01)
+    out = rc.answer_question({"question": "who was mahatma gandhi"},
+                             FakeRAG([weak]), FakeLLM(FakeOllama("")))
+
+    assert out["grounded"] is False
+    assert "You have NO textbook passages" in seen["system"]
+    assert "must NOT answer a factual question" in seen["system"]
+    # the passage text must not be smuggled in
+    assert "Heat energy moves" not in seen["system"]
+
+
+def test_with_sources_the_full_teaching_prompt_is_used(monkeypatch):
+    import story_mvp.rag_chat as rc
+
+    seen = {}
+
+    def capture(p, system, user, history=None):
+        seen["system"] = system
+        return '{"answer": "Heat flows hot to cold [S1]."}'
+
+    monkeypatch.setattr(rc, "_call_provider", capture)
+    out = rc.answer_question({"question": "how does heat move between objects?"},
+                             FakeRAG([chunk()]), FakeLLM(FakeOllama("")))
+
+    assert out["grounded"] is True
+    assert "analog" in seen["system"].lower()
+    assert "Heat energy moves from the hot water" in seen["system"]

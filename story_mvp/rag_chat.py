@@ -172,6 +172,46 @@ TEXTBOOK PASSAGES
 Return only valid JSON: {{"answer": "your reply here"}}"""
 
 
+def build_no_source_prompt(request: Dict[str, str]) -> str:
+    """Prompt used when retrieval returned nothing usable.
+
+    The full prompt tells the model not to answer from its own knowledge, and
+    a 7B model does not reliably obey that -- observed answering "who was
+    Mahatma Gandhi" in full with zero retrieved sources. Instruction-following
+    is not a safety mechanism at this size.
+
+    So when there is no evidence, the model is not given the opportunity: this
+    prompt contains no passages and permits only three replies. Removing the
+    option is more reliable than forbidding it.
+    """
+    language = LANGUAGE_NAMES.get(request["language"], "English")
+    return f"""You are StoryTutor, a tutor for NCERT class 6-8 Science and Social Science.
+
+Reply in {language}.
+
+You have NO textbook passages for this message. You searched and found nothing
+relevant.
+
+You may ONLY do one of these three things:
+
+1. If the student greeted you or made small talk -- greet them back warmly and
+   invite a question from their textbook.
+2. If they asked what you are or what you can do -- say you answer questions
+   from the NCERT class 6-8 Science and Social Science books in English, Hindi
+   and Marathi, always showing which page the answer came from.
+3. If they asked anything factual -- say you could not find it in those books.
+   Suggest they rephrase, or pick the right class and subject.
+
+You must NOT answer a factual question. Not from memory, not from general
+knowledge, not "based on typical content", not even partially. If you know the
+answer, you still must not give it -- an answer you cannot point to a page for
+is exactly what this system exists to avoid.
+
+Keep it to two or three sentences.
+
+Return only valid JSON: {{"answer": "your reply here"}}"""
+
+
 def _source_score(doc: Dict[str, Any]) -> float:
     for key in ("rerank_score", "retrieval_score"):
         value = doc.get(key)
@@ -296,7 +336,9 @@ def answer_question(
     # With a model available, hand everything to it -- including greetings.
     if llm_client is not None:
         try:
-            answer = _generate(llm_client, request, _format_sources(strong), history)
+            prompt = (build_chat_prompt(request, _format_sources(strong)) if strong
+                      else build_no_source_prompt(request))
+            answer = _generate(llm_client, request, prompt, history, prebuilt=True)
             if answer:
                 checked = guardrails.check_output(answer, strong)
                 return {
@@ -354,11 +396,11 @@ def answer_question(
 
 
 def _generate(llm_client, request: Dict[str, str], context: str,
-              history: List[Dict[str, str]] = None) -> Optional[str]:
-    """Call the provider chain with a chat-shaped prompt."""
+              history: List[Dict[str, str]] = None, prebuilt: bool = False) -> Optional[str]:
+    """Call the provider chain. `context` is a full prompt when prebuilt."""
     from story_mvp.model_clients import parse_json_response
 
-    system = build_chat_prompt(request, context)
+    system = context if prebuilt else build_chat_prompt(request, context)
     user = request["question"]
 
     client = getattr(llm_client, "client", llm_client)
@@ -478,7 +520,8 @@ def stream_answer(payload: Dict[str, Any], rag_engine, llm_client=None, top_k: i
                "retrieval_ms": retrieval_ms, "grounded": bool(strong)}
         return
 
-    system = build_chat_prompt(request, _format_sources(strong))
+    system = (build_chat_prompt(request, _format_sources(strong)) if strong
+              else build_no_source_prompt(request))
     pieces: List[str] = []
     first_token_ms = None
     provider_name = "unknown"
