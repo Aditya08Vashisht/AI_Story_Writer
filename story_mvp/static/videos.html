@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StoryTutor Videos</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0f17;--panel:#121822;--panel2:#1a2230;--line:#243044;--txt:#e6edf6;--dim:#8fa3bd;--accent:#4f9cf9;--ok:#22c55e;--warn:#f59e0b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:'Inter','Noto Sans Devanagari',system-ui,sans-serif;min-height:100vh}
+header{display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
+.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#a78bfa);display:grid;place-items:center;font-weight:700;font-size:14px;color:#fff}
+header h1{font-size:15px;font-weight:600}
+header .sub{font-size:12px;color:var(--dim)}
+header a{margin-left:auto;color:var(--accent);text-decoration:none;font-size:13px;font-weight:600;border:1px solid var(--line);padding:6px 12px;border-radius:8px}
+main{max-width:1100px;margin:0 auto;padding:28px 20px}
+.empty{color:var(--dim);text-align:center;padding:60px 16px;line-height:1.7}
+.empty code{background:var(--panel2);padding:2px 7px;border-radius:5px;color:var(--txt)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:24px}
+video{width:100%;display:block;background:#000;aspect-ratio:16/9}
+.meta{padding:16px 18px}
+.meta h2{font-size:17px;margin-bottom:6px;line-height:1.5}
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}
+.pill{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);font-weight:600}
+.pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}
+details{margin-top:8px;font-size:13px;color:var(--dim)}
+summary{cursor:pointer;color:var(--txt);font-weight:600;padding:4px 0}
+.row{padding:7px 0;border-bottom:1px solid var(--line);line-height:1.65}
+.row b{color:var(--txt);font-weight:600}
+.dl{display:inline-block;margin-top:10px;font-size:12px;color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">ST</div>
+  <div><h1>Concept videos</h1><div class="sub">Rendered from grounded NCERT answers</div></div>
+  <a href="/">&larr; Back to chat</a>
+</header>
+<main id="list"><p class="empty">Loading&hellip;</p></main>
+
+<script>
+// Plain JS, no JSX: this page is served as a static file, and keeping it free
+// of template syntax means no engine can ever misread it.
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+
+fetch('/api/videos').then(r=>r.json()).then(items=>{
+  const root=document.getElementById('list');
+  if(!items.length){
+    root.innerHTML='<p class="empty">No videos yet. Generate some with<br><br>'+
+      '<code>python scripts/make_video.py --batch concepts.json --no-audio</code><br><br>'+
+      'then reload this page.</p>';
+    return;
+  }
+  root.innerHTML=items.map(v=>{
+    const src=(v.sources||[]).map((s,i)=>
+      '<div class="row"><b>S'+(i+1)+'</b> · '+esc(s.source_file||s.id||'')+
+      (s.chapter?' · ch '+esc(s.chapter):'')+(s.page?' · p'+esc(s.page):'')+
+      (s.score!=null?' · score '+Number(s.score).toFixed(3):'')+'</div>').join('');
+    const scenes=(v.scenes||[]).map(s=>
+      '<div class="row"><b>'+esc(s.key)+'</b> — '+esc(s.narration)+'</div>').join('');
+    return '<div class="card">'+
+      '<video controls preload="metadata" src="'+esc(v.url)+'"></video>'+
+      '<div class="meta">'+
+        '<h2>'+esc(v.question||v.title||v.file)+'</h2>'+
+        '<div class="pills">'+
+          (v.language?'<span class="pill">'+esc(v.language)+'</span>':'')+
+          '<span class="pill ok">'+(v.sources||[]).length+' source(s)</span>'+
+          (v.total_words!=null?'<span class="pill">'+esc(v.total_words)+' words</span>':'')+
+          '<span class="pill '+(v.narrated?'ok':'warn')+'">'+(v.narrated?'narrated':'subtitles only')+'</span>'+
+          (v.model_provider?'<span class="pill">'+esc(v.model_provider)+'</span>':'')+
+        '</div>'+
+        '<details><summary>Script</summary>'+scenes+'</details>'+
+        '<details><summary>Sources this video was built from</summary>'+(src||'<div class="row">none recorded</div>')+'</details>'+
+        '<a class="dl" href="'+esc(v.url)+'" download>Download MP4</a>'+
+      '</div></div>';
+  }).join('');
+}).catch(e=>{
+  document.getElementById('list').innerHTML='<p class="empty">Could not load videos: '+esc(e)+'</p>';
+});
+</script>
+</body>
+</html>

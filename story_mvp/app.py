@@ -114,6 +114,58 @@ def index():
     return app.send_static_file("chat.html")
 
 
+VIDEO_DIR = os.path.join(_PROJECT_ROOT, "outputs", "videos")
+
+
+@app.route("/videos")
+def videos_page():
+    """Watch generated videos in the browser over the same forwarded port as
+    the chat, instead of downloading each MP4 from the cluster by hand."""
+    return app.send_static_file("videos.html")
+
+
+@app.route("/api/videos")
+def list_videos():
+    """Every rendered MP4, newest first, with its sidecar audit data."""
+    items = []
+    if os.path.isdir(VIDEO_DIR):
+        names = [n for n in os.listdir(VIDEO_DIR) if n.endswith(".mp4")]
+        names.sort(key=lambda n: os.path.getmtime(os.path.join(VIDEO_DIR, n)), reverse=True)
+        for name in names:
+            meta = {}
+            side = os.path.join(VIDEO_DIR, name[:-4] + ".json")
+            if os.path.exists(side):
+                try:
+                    with open(side, encoding="utf-8") as f:
+                        meta = json.load(f)
+                except Exception:  # noqa: BLE001 - a bad sidecar must not hide the video
+                    meta = {}
+            items.append({
+                "file": name,
+                "url": "/videos/file/" + name,
+                "question": meta.get("question"),
+                "title": meta.get("title"),
+                "language": meta.get("language"),
+                "total_words": meta.get("total_words"),
+                "narrated": meta.get("narrated"),
+                "model_provider": meta.get("model_provider"),
+                "sources": meta.get("sources", []),
+                "scenes": [{"key": s.get("key"), "narration": s.get("narration")}
+                           for s in meta.get("scenes", [])],
+            })
+    return jsonify(items)
+
+
+@app.route("/videos/file/<name>")
+def video_file(name):
+    """Serve one file from outputs/videos. Basenames only -- no traversal."""
+    from flask import abort, send_from_directory
+
+    if name != os.path.basename(name) or not name.endswith((".mp4", ".json")):
+        abort(404)
+    return send_from_directory(VIDEO_DIR, name)
+
+
 @app.route("/api/options")
 def options():
     return jsonify(

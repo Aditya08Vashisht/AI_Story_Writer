@@ -78,3 +78,51 @@ def test_rejected_replies_are_saved_for_diagnosis(tmp_path):
     assert len(saved) == 1
     text = saved[0].read_text(encoding="utf-8")
     assert "RAW REPLY" in text and "दृश्य" in text
+
+
+def test_script_call_sends_an_instruction_not_the_question(monkeypatch):
+    """Sending the student's question as the user turn made the model answer
+    it ({"answer": ...}) instead of writing a script -- every Hindi and Marathi
+    attempt on Sol came back with no scenes at all."""
+    import story_mvp.rag_chat as rc
+    from story_mvp.video.script import SCRIPT_INSTRUCTION, script_from_answer
+
+    seen = {}
+
+    def capture(provider, system, user, history=None):
+        seen["user"] = user
+        return ('{"title":"t","scenes":{'
+                + ",".join(f'"{k}":{{"heading":"h","body":"b","narration":"एक दो तीन"}}'
+                           for k in ("title", "idea", "diagram", "check"))
+                + '},"diagram_nodes":["क","ख"],"diagram_edges":[["क","ख"]]}')
+
+    monkeypatch.setattr(rc, "_call_provider", capture)
+    fake = type("P", (), {"provider_name": "ollama"})()
+    script_from_answer({"question": "पौधे भोजन कैसे बनाते हैं?", "answer": "a", "grounded": True,
+                        "sources": SOURCES}, fake, REQ)
+    assert seen["user"] == SCRIPT_INSTRUCTION
+    assert "पौधे" not in seen["user"]
+
+
+def test_two_node_diagram_is_accepted():
+    """'hot water -> spoon' is a complete diagram; requiring 3 refused it."""
+    reply = {"title": "t",
+             "scenes": {k: {"heading": "h", "body": "b", "narration": "short line"}
+                        for k in ("title", "idea", "diagram", "check")},
+             "diagram_nodes": ["Hot water", "Spoon"], "diagram_edges": [["Hot water", "Spoon"]]}
+    script = _assemble(reply, {"question": "q"}, {**REQ, "language": "english"}, SOURCES, "ollama")
+    assert validate(script, 1) == []
+
+
+def test_one_word_overrun_is_tolerated_but_a_long_one_is_not():
+    from story_mvp.video.script import Scene
+
+    base = {"title": "t",
+            "scenes": {k: {"heading": "h", "body": "b", "narration": "ok"}
+                       for k in ("title", "idea", "diagram", "check")},
+            "diagram_nodes": ["a", "b"], "diagram_edges": [["a", "b"]]}
+    script = _assemble(base, {"question": "q"}, {**REQ, "language": "english"}, SOURCES, "ollama")
+    script.scenes[3].narration = " ".join(["w"] * 15)   # budget 14
+    assert validate(script, 1) == []
+    script.scenes[3].narration = " ".join(["w"] * 40)
+    assert validate(script, 1)

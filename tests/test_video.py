@@ -87,7 +87,7 @@ def test_diagram_must_be_internally_consistent():
     assert any("unknown node" in p for p in validate(s, n_sources=1))
 
     s2 = demo_script(diagram_nodes=["only one"])
-    assert any("3-6 nodes" in p for p in validate(s2, n_sources=1))
+    assert any("2-6 nodes" in p for p in validate(s2, n_sources=1))
 
 
 # ---------------- grounding refusal ----------------

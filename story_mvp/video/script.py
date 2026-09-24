@@ -34,6 +34,18 @@ SCENE_BUDGET = {
 }
 TOTAL_SECONDS = sum(v[0] for v in SCENE_BUDGET.values())
 
+SCRIPT_INSTRUCTION = (
+    "Write the video script now. Reply with the JSON object only, using exactly "
+    "the keys shown: title, scenes (title, idea, diagram, check -- each with "
+    "heading, body, narration), diagram_nodes, diagram_edges. Do not answer the "
+    "question directly and do not add an 'answer' key."
+)
+
+# A one-word overrun should be sent back for a retry, not treated as fatal.
+# Rejecting 15 words against a limit of 14 cost a whole attempt on Sol. Total
+# length stays bounded: 72 budgeted words become at most ~86.
+WORD_SLACK = 1.2
+
 _CITATION = re.compile(r"\[S(\d+)\]")
 _WORD = re.compile(r"[\wऀ-ॣ०-ॿ]+")
 
@@ -106,7 +118,7 @@ makes the video run long and the scenes desync:
 
 {budgets}
 
-Also give a simple concept diagram: 3 to 5 short node labels and the arrows
+Also give a simple concept diagram: 2 to 5 short node labels and the arrows
 between them, showing how the idea flows. Node labels must be 1-4 words.
 
 Return only valid JSON in exactly this shape:
@@ -131,7 +143,8 @@ def validate(script: VideoScript, n_sources: int) -> List[str]:
     problems: List[str] = []
 
     for scene in script.scenes:
-        limit = SCENE_BUDGET.get(scene.key, (0, 25))[1]
+        budget = SCENE_BUDGET.get(scene.key, (0, 25))[1]
+        limit = int(budget * WORD_SLACK + 0.999)
         words = count_words(scene.narration)
         if words > limit:
             problems.append(f"scene '{scene.key}': {words} words of narration, limit {limit}")
@@ -144,8 +157,11 @@ def validate(script: VideoScript, n_sources: int) -> List[str]:
             if not 1 <= int(marker) <= n_sources:
                 problems.append(f"scene '{scene.key}': cites [S{marker}] but only {n_sources} source(s) exist")
 
-    if not 3 <= len(script.diagram_nodes) <= 6:
-        problems.append(f"diagram needs 3-6 nodes, got {len(script.diagram_nodes)}")
+    # Two nodes is a legitimate diagram -- "hot water -> spoon" is the whole
+    # idea for the heat-transfer concept. Requiring three rejected it three
+    # times on Sol and refused a video that was otherwise correct.
+    if not 2 <= len(script.diagram_nodes) <= 6:
+        problems.append(f"diagram needs 2-6 nodes, got {len(script.diagram_nodes)}")
 
     known = {n.strip().lower() for n in script.diagram_nodes}
     for edge in script.diagram_edges:
@@ -218,7 +234,12 @@ def script_from_answer(
         provider_name = "unknown"
         for provider in providers:
             try:
-                raw = _call_provider(provider, prompt, rag_result.get("question", ""), None)
+                # The user turn is a fixed instruction, NOT the student's
+                # question. Sending the question made the model answer it --
+                # replying {"answer": ...} with no scenes at all -- which is
+                # why every Hindi and Marathi attempt came back identically
+                # empty. The question is already inside the system prompt.
+                raw = _call_provider(provider, prompt, SCRIPT_INSTRUCTION, None)
                 provider_name = getattr(provider, "provider_name", "unknown")
                 break
             except Exception as exc:  # noqa: BLE001

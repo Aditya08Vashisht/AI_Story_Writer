@@ -365,6 +365,7 @@ function App(){
         <div className="spacer"></div>
         {health && <Badge kind={health.status==='online'?'ok':'bad'}>{health.status==='online'?'online':'offline'}</Badge>}
         {health?.model_provider && <Badge kind={['deterministic','none'].includes(health.model_provider)?'warn':'ok'}>{health.model_provider}</Badge>}
+        <a className="pill" href="/videos" style={{textDecoration:'none',color:'var(--accent)'}}>videos</a>
         <button className="iconbtn" onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?'☀':'☾'}</button>
       </div>
 

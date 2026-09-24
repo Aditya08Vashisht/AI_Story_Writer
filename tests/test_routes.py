@@ -54,3 +54,28 @@ def test_chat_endpoint_rejects_an_empty_question(client):
     assert r.status_code in (200, 503)
     if r.status_code == 200:
         assert r.get_json()["grounded"] is False
+
+
+def test_video_page_serves(client):
+    r = client.get("/videos")
+    assert r.status_code == 200
+    assert "/api/videos" in r.get_data(as_text=True)
+
+
+def test_video_listing_reads_sidecars(client, tmp_path, monkeypatch):
+    import json as _json
+    import story_mvp.app as appmod
+
+    (tmp_path / "heat.mp4").write_bytes(b"\x00\x00")
+    (tmp_path / "heat.json").write_text(_json.dumps({"question": "why hot", "sources": [{"page": 3}]}),
+                                        encoding="utf-8")
+    monkeypatch.setattr(appmod, "VIDEO_DIR", str(tmp_path))
+    items = client.get("/api/videos").get_json()
+    assert items[0]["question"] == "why hot"
+    assert items[0]["url"] == "/videos/file/heat.mp4"
+    assert client.get("/videos/file/heat.mp4").status_code == 200
+
+
+def test_video_file_route_rejects_traversal_and_other_types(client):
+    assert client.get("/videos/file/..%2Fapp.py").status_code == 404
+    assert client.get("/videos/file/secrets.env").status_code == 404
