@@ -42,7 +42,7 @@ mkdir -p "$OLLAMA_ROOT" "$OLLAMA_MODELS"
 # The /releases/latest/download/ alias 404s for this asset name, so ask the
 # API for the actual newest tag first. v0.5.7 is a known-good floor, but it
 # predates Qwen3 -- see the model fallback below.
-LATEST_TAG=$(curl -sf https://api.github.com/repos/ollama/ollama/releases/latest 2>/dev/null     | sed -n 's/.*"tag_name": *"\([^"]*\)".*//p' | head -1)
+LATEST_TAG=$(curl -sf https://api.github.com/repos/ollama/ollama/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | cut -d'"' -f4)
 
 URLS=()
 [ -n "$LATEST_TAG" ] && URLS+=("https://github.com/ollama/ollama/releases/download/${LATEST_TAG}/ollama-linux-amd64.tgz")
