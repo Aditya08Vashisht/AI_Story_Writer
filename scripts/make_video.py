@@ -67,7 +67,8 @@ def slugify(text: str, limit: int = 48) -> str:
     return "-".join(keep.lower().split())[:limit] or "video"
 
 
-def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = False) -> dict:
+def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = False,
+             illustrator=None) -> dict:
     question = concept["question"]
     request = {
         "question": question,
@@ -87,12 +88,37 @@ def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = Fal
               "about something the textbooks do not cover.")
         return {"question": question, "status": "refused_ungrounded"}
 
-    script = script_from_answer(rag, llm, request, debug_dir=outdir / "debug")
-    print(f"  script: {script.total_words} words across {len(script.scenes)} scenes")
+    t_script = time.time()
+    want_visuals = illustrator is not None
+    script = script_from_answer(rag, llm, request, debug_dir=outdir / "debug",
+                                want_visuals=want_visuals)
+    print(f"  script: {script.total_words} words across {len(script.scenes)} scenes "
+          f"({time.time() - t_script:.0f}s)")
 
-    # Render cards. English-only fallback if this Pillow cannot shape Devanagari.
+    # Illustrations: one per title/idea/check scene. Any single failure falls
+    # back to a text card for that scene rather than losing the video.
+    pictures, illustration_log = {}, []
+    if illustrator is not None:
+        t_img = time.time()
+        from story_mvp.video.script import VISUAL_SCENES
+
+        for scene in script.scenes:
+            if scene.key not in VISUAL_SCENES or not scene.visual:
+                continue
+            result = illustrator.generate(scene.visual)
+            if result is None:
+                illustration_log.append({"scene": scene.key, "visual": scene.visual, "generated": False})
+                continue
+            img, meta = result
+            pictures[scene.key] = img
+            illustration_log.append({"scene": scene.key, **meta, "generated": True})
+            print(f"    image '{scene.key}': {'cached' if meta['cached'] else 'generated'} "
+                  f"(seed {meta['seed']}) - {scene.visual[:60]}")
+        print(f"  illustrations: {len(pictures)}/{len(VISUAL_SCENES)} ({time.time() - t_img:.0f}s)")
+
+    # Render cards. Refuse Devanagari if this Pillow cannot shape it.
     try:
-        images = [cards.render_scene(s, script) for s in script.scenes]
+        images = [cards.render_scene(s, script, pictures.get(s.key)) for s in script.scenes]
     except cards.RenderError as exc:
         print(f"  RENDER REFUSED: {exc}")
         return {"question": question, "status": "refused_no_shaper", "error": str(exc)}
@@ -115,6 +141,8 @@ def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = Fal
         "retrieval_method": rag.get("retrieval_method"),
         "seconds_to_build": round(time.time() - t0, 1),
         "narrated": any(p for p in audio_paths),
+        "illustrations": illustration_log,
+        "image_model": getattr(illustrator, "model_id", None),
     })
 
     total = sum(durations)
@@ -134,6 +162,8 @@ def main() -> int:
     ap.add_argument("--outdir", default="outputs/videos")
     ap.add_argument("--dataset-dir", default="knowledge_base")
     ap.add_argument("--no-audio", action="store_true", help="Skip TTS; subtitles only.")
+    ap.add_argument("--no-images", action="store_true",
+                    help="Skip illustrations; text cards only (no GPU image model).")
     args = ap.parse_args()
 
     if not args.question and not args.batch:
@@ -160,10 +190,24 @@ def main() -> int:
     llm = StoryLLM()
     tts = None if args.no_audio else IndicTTS()
 
+    illustrator = None
+    if not args.no_images:
+        from story_mvp.video.images import IllustrationGenerator
+
+        illustrator = IllustrationGenerator()
+        # Load once, up front, so a missing diffusers or GPU is reported
+        # before any concept runs -- and then the batch continues on text cards.
+        if not illustrator.available:
+            print(f"\nNOTE: illustrations disabled ({illustrator.failure}).")
+            print("      Videos will use text cards. To enable pictures:")
+            print("        pip install -U diffusers accelerate sentencepiece protobuf\n")
+            illustrator = None
+
     results = []
     for concept in concepts:
         try:
-            results.append(make_one(concept, engine, llm, tts, outdir, args.no_audio))
+            results.append(make_one(concept, engine, llm, tts, outdir, args.no_audio,
+                                    illustrator=illustrator))
         except ScriptError as exc:
             print(f"  SCRIPT REFUSED: {exc}")
             results.append({"question": concept.get("question"), "status": "refused_script",

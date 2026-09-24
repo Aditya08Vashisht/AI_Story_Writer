@@ -68,6 +68,7 @@ fetch('/api/videos').then(r=>r.json()).then(items=>{
           '<span class="pill ok">'+(v.sources||[]).length+' source(s)</span>'+
           (v.total_words!=null?'<span class="pill">'+esc(v.total_words)+' words</span>':'')+
           '<span class="pill '+(v.narrated?'ok':'warn')+'">'+(v.narrated?'narrated':'subtitles only')+'</span>'+
+          (v.illustrations?'<span class="pill ok">'+esc(v.illustrations)+' illustrations</span>':'')+
           (v.model_provider?'<span class="pill">'+esc(v.model_provider)+'</span>':'')+
         '</div>'+
         '<details><summary>Script</summary>'+scenes+'</details>'+

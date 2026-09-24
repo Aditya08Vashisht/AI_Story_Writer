@@ -40,6 +40,30 @@ a code problem. So:
 
 The only thing that genuinely needs the GPU is TTS, and even that is optional.
 
+### Revision: three illustrations per video
+
+Text-only cards proved too thin to *explain* anything. The revision adds one
+picture each to the title, idea and check scenes, with **FLUX.1-schnell**
+(Apache-2.0, 4 steps, about 5–10 s per image on an A100). This is done without
+giving up the two properties above:
+
+| Concern | How it is kept |
+| --- | --- |
+| Text on screen | The image model **never draws text**. The script asks for an English `visual` description of objects and scenes only; the style suffix forbids letters, labels and signs; every word on screen is still drawn by Pillow, over a gradient scrim. |
+| Reproducibility | Each image's seed is derived from its prompt (sha256), and images are cached on disk by model + prompt + seed + size + steps. The same script gives the same pictures, and a re-run costs nothing. |
+| Diagram accuracy | The diagram scene is **never illustrated**. It is still drawn from its node/edge spec. |
+| Facts | Pictures are atmosphere and example, never evidence. No fact is carried by an image; facts live in the cited narration and the diagram. The sidecar records each prompt, seed and model, so every picture can be audited. |
+| Failure | Optional. No GPU, no diffusers or a failed generation gives that scene a text card; the video is never lost. `--no-images` turns it off. |
+
+Motion: each scene is a slow 5% push-in with a fade in and out, so a
+still picture does not read as a slideshow. Subtitles are burned in
+with the Noto fonts on a translucent box, and the source line sits at the top
+so the two never overlap.
+
+Budget: a 30-second video now takes about 1–3 minutes to build (script ~30 s,
+three images ~30 s, encode ~30 s), well inside the 3–4 minute allowance. The
+first run also downloads the model once (~33 GB into `HF_HOME`).
+
 ---
 
 ## 2. Pipeline
@@ -97,9 +121,11 @@ Ch. 8, p. 3*. That is the accuracy claim made visible.
 | Encode | **imageio-ffmpeg** | BSD-2 | bundles a static ffmpeg; no module load |
 | TTS | **`ai4bharat/indic-parler-tts`** | Apache-2.0 | Hindi + Marathi + Indian English in one model |
 | Script | qwen2.5:7b / qwen3:8b via Ollama | Apache-2.0 | already running |
+| Illustrations | **`black-forest-labs/FLUX.1-schnell`** via diffusers | Apache-2.0 | 4-step, fits beside Ollama on an 80 GB A100; optional |
 
-**Deliberately not used:** Graphviz (external binary), FLUX/SDXL (24 GB,
-non-reproducible, can't render text), any text-to-video model.
+**Deliberately not used:** Graphviz (external binary), any text-to-video
+model, and image-model text of any kind. (FLUX was first excluded too; it is now
+used for pictures only, with the controls in section 1.)
 
 ### The Devanagari trap
 

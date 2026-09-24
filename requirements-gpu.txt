@@ -11,6 +11,14 @@ vllm>=0.6.0
 imageio-ffmpeg>=0.5.1
 soundfile>=0.12.1
 
+# Scene illustrations (FLUX.1-schnell, Apache-2.0). Optional: without these,
+# or without a GPU, videos fall back to text cards. First use downloads ~33 GB
+# into HF_HOME -- keep HF_HOME on /scratch.
+diffusers>=0.32.0
+accelerate>=1.0.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
+
 # Narration is optional -- the pipeline produces a subtitled silent video
 # without it. parler-tts installs from git:
 #   pip install git+https://github.com/huggingface/parler-tts.git

@@ -36,9 +36,9 @@ TOTAL_SECONDS = sum(v[0] for v in SCENE_BUDGET.values())
 
 SCRIPT_INSTRUCTION = (
     "Write the video script now. Reply with the JSON object only, using exactly "
-    "the keys shown: title, scenes (title, idea, diagram, check -- each with "
-    "heading, body, narration), diagram_nodes, diagram_edges. Do not answer the "
-    "question directly and do not add an 'answer' key."
+    "the keys shown in the instructions: title, scenes (title, idea, diagram, "
+    "check), diagram_nodes, diagram_edges. Do not answer the question directly "
+    "and do not add an 'answer' key."
 )
 
 # A one-word overrun should be sent back for a retry, not treated as fatal.
@@ -47,6 +47,7 @@ SCRIPT_INSTRUCTION = (
 WORD_SLACK = 1.2
 
 _CITATION = re.compile(r"\[S(\d+)\]")
+_DEVA = re.compile(r"[ऀ-ॿ]")
 _WORD = re.compile(r"[\wऀ-ॣ०-ॿ]+")
 
 
@@ -61,6 +62,14 @@ class Scene:
     body: str
     narration: str
     seconds: float
+    # English description of an illustration for this moment. Always English,
+    # even for Hindi/Marathi videos, because that is what the image model reads.
+    visual: str = ""
+
+
+# Scenes that get a generated illustration. The diagram scene is drawn by
+# Pillow from nodes and edges, because a picture must never carry a fact.
+VISUAL_SCENES = ("title", "idea", "check")
 
 
 @dataclass
@@ -92,18 +101,47 @@ class ScriptError(RuntimeError):
     pass
 
 
-def build_script_prompt(question: str, answer: str, sources: List[Dict], request: Dict[str, str]) -> str:
+def _scene_template(want_visuals: bool) -> str:
+    rows = []
+    for key in SCENE_BUDGET:
+        body = "a question for the student" if key == "check" else "..."
+        visual = ', "visual": "..."' if want_visuals and key in VISUAL_SCENES else ""
+        rows.append(f'    "{key}": {{"heading": "...", "body": "{body}", "narration": "..."{visual}}}')
+    return "{\n" + ",\n".join(rows) + "\n  }"
+
+
+def _visual_rules(language: str) -> str:
+    return f"""
+The scenes "title", "idea" and "check" each also need a "visual": ONE sentence,
+IN ENGLISH even though the video is in {language}, describing an illustration a
+painter could draw for that moment -- concrete objects in a setting an Indian
+student would recognise.
+
+Never ask for words, letters, labels, signs, numbers, charts, maps or diagrams
+in a visual. All text is added separately, and a picture must not carry a fact
+that could be wrong -- the facts live in the narration and the diagram.
+  Good: "a steel spoon resting in a cup of steaming chai on a kitchen counter"
+  Good: "green leaves of a mango tree glowing in bright morning sunlight"
+  Bad:  "a diagram labelled heat flow"      Bad: "a world map showing oceans"
+"""
+
+
+def build_script_prompt(question: str, answer: str, sources: List[Dict], request: Dict[str, str],
+                        want_visuals: bool = False) -> str:
     language = {"english": "English", "hindi": "Hindi", "marathi": "Marathi"}.get(
         request.get("language", "english"), "English")
     n = len(sources)
     budgets = "\n".join(
         f"  {k}: at most {w} words of narration" for k, (_, w) in SCENE_BUDGET.items()
     )
+    visual_rules = _visual_rules(language) if want_visuals else ""
+    keys = '"title", "scenes", "heading", "body", "narration", ' + ('"visual", ' if want_visuals else "") \
+        + '"diagram_nodes", "diagram_edges"'
+    scenes_json = _scene_template(want_visuals)
     return f"""You are writing a 30-second explainer video for an Indian school student.
 
 The text VALUES you write must be in {language}. The JSON KEYS must stay
-exactly as shown below, in English -- "title", "scenes", "heading", "body",
-"narration", "diagram_nodes", "diagram_edges". Do not translate the keys.
+exactly as shown below, in English -- {keys}. Do not translate the keys.
 
 Here is a grounded answer, already checked against NCERT textbook pages:
 ---
@@ -120,16 +158,11 @@ makes the video run long and the scenes desync:
 
 Also give a simple concept diagram: 2 to 5 short node labels and the arrows
 between them, showing how the idea flows. Node labels must be 1-4 words.
-
+{visual_rules}
 Return only valid JSON in exactly this shape:
 {{
   "title": "short video title, at most 6 words",
-  "scenes": {{
-    "title":   {{"heading": "...", "body": "...", "narration": "..."}},
-    "idea":    {{"heading": "...", "body": "...", "narration": "..."}},
-    "diagram": {{"heading": "...", "body": "...", "narration": "..."}},
-    "check":   {{"heading": "...", "body": "a question for the student", "narration": "..."}}
-  }},
+  "scenes": {scenes_json},
   "diagram_nodes": ["...", "...", "..."],
   "diagram_edges": [["node a", "node b"], ["node b", "node c"]]
 }}
@@ -138,9 +171,23 @@ Return only valid JSON in exactly this shape:
 "narration" is what is spoken. They should agree but need not be identical."""
 
 
-def validate(script: VideoScript, n_sources: int) -> List[str]:
+def validate(script: VideoScript, n_sources: int, require_visuals: bool = False) -> List[str]:
     """Return a list of problems. Empty means the script is usable."""
     problems: List[str] = []
+
+    if require_visuals:
+        for scene in script.scenes:
+            if scene.key not in VISUAL_SCENES:
+                continue
+            v = scene.visual.strip()
+            if not v:
+                problems.append(f"scene '{scene.key}': missing 'visual' description")
+            elif _DEVA.search(v):
+                # The image model reads English. A Hindi prompt produces an
+                # unrelated or garbled picture, so send it back.
+                problems.append(f"scene '{scene.key}': 'visual' must be written in English")
+            elif count_words(v) > 45:
+                problems.append(f"scene '{scene.key}': 'visual' too long, keep it to one sentence")
 
     for scene in script.scenes:
         budget = SCENE_BUDGET.get(scene.key, (0, 25))[1]
@@ -197,6 +244,7 @@ def script_from_answer(
     request: Dict[str, str],
     max_attempts: int = 3,
     debug_dir: Optional[Any] = None,
+    want_visuals: bool = False,
 ) -> VideoScript:
     """Build a validated script, retrying with the problems fed back.
 
@@ -215,12 +263,17 @@ def script_from_answer(
     from story_mvp.model_clients import parse_json_response
 
     base_prompt = build_script_prompt(
-        rag_result.get("question", ""), rag_result.get("answer", ""), sources, request
+        rag_result.get("question", ""), rag_result.get("answer", ""), sources, request,
+        want_visuals=want_visuals,
     )
     client = getattr(llm_client, "client", llm_client)
     providers = list(getattr(client, "clients", [client]))
 
     last_problems: List[str] = []
+    # A script whose narration and diagram are right but whose picture
+    # descriptions are not is still a good video -- those scenes just get text
+    # cards. Kept as a fallback so a bad `visual` never costs the whole video.
+    visual_only_fallback: Optional[VideoScript] = None
     for attempt in range(max_attempts):
         prompt = base_prompt
         if last_problems:
@@ -258,14 +311,27 @@ def script_from_answer(
                 continue
 
         script = _assemble(data, rag_result, request, sources, provider_name)
-        problems = validate(script, len(sources))
+        problems = validate(script, len(sources), require_visuals=want_visuals)
         if not problems:
             return script
+        if all("'visual'" in p for p in problems):
+            visual_only_fallback = _drop_bad_visuals(script)
         last_problems = problems
         print(f"video script attempt {attempt+1} rejected: {problems}")
         _dump_reply(debug_dir, request, attempt + 1, raw, problems)
 
+    if visual_only_fallback is not None:
+        print("video script: keeping the script; scenes with unusable 'visual' get text cards")
+        return visual_only_fallback
     raise ScriptError(f"could not produce a valid script in {max_attempts} attempts: {last_problems}")
+
+
+def _drop_bad_visuals(script: VideoScript) -> VideoScript:
+    for scene in script.scenes:
+        v = scene.visual.strip()
+        if _DEVA.search(v) or count_words(v) > 45:
+            scene.visual = ""
+    return script
 
 
 def _dump_reply(debug_dir, request: Dict[str, str], attempt: int, raw: str, problems: List[str]) -> None:
@@ -285,7 +351,7 @@ def _dump_reply(debug_dir, request: Dict[str, str], attempt: int, raw: str, prob
         print(f"could not save debug reply - {exc}")
 
 
-_SCENE_FIELDS = ("heading", "body", "narration")
+_SCENE_FIELDS = ("heading", "body", "narration", "visual")
 
 
 def recover_structure(data: Any) -> Dict[str, Any]:
@@ -369,6 +435,7 @@ def _assemble(data: Dict, rag_result: Dict, request: Dict[str, str],
             body=str(s.get("body", "")).strip(),
             narration=str(s.get("narration", "")).strip(),
             seconds=seconds,
+            visual=str(s.get("visual", "")).strip(),
         ))
 
     nodes = [str(n).strip() for n in (data.get("diagram_nodes") or []) if str(n).strip()]

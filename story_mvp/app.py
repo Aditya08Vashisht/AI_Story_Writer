@@ -148,6 +148,7 @@ def list_videos():
                 "language": meta.get("language"),
                 "total_words": meta.get("total_words"),
                 "narrated": meta.get("narrated"),
+                "illustrations": sum(1 for i in (meta.get("illustrations") or []) if i.get("generated")),
                 "model_provider": meta.get("model_provider"),
                 "sources": meta.get("sources", []),
                 "scenes": [{"key": s.get("key"), "narration": s.get("narration")}

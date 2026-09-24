@@ -73,6 +73,7 @@ def render_video(
     durations: Optional[Sequence[float]] = None,
     out_path: Path = Path("outputs/videos/video.mp4"),
     burn_subtitles: bool = False,
+    motion: bool = True,
 ) -> Path:
     """Cards + optional narration -> MP4."""
     if not images:
@@ -88,33 +89,27 @@ def render_video(
 
     work = Path(tempfile.mkdtemp(prefix="stvid_"))
     try:
-        # One still per scene, held for its duration. concat demuxer needs the
-        # final entry repeated or it drops the last frame.
-        entries, png_paths = [], []
+        # 1. One short clip per scene: a slow push-in plus a fade in and out,
+        #    so each card moves instead of sitting as a frozen slide.
+        clips = []
         for i, img in enumerate(images):
-            p = work / f"scene_{i:02d}.png"
-            img.save(p)
-            png_paths.append(p)
-            entries.append(f"file '{p.as_posix()}'")
-            entries.append(f"duration {durations[i]:.3f}")
-        entries.append(f"file '{png_paths[-1].as_posix()}'")
-        concat = work / "concat.txt"
-        concat.write_text("\n".join(entries), encoding="utf-8")
+            png = work / f"scene_{i:02d}.png"
+            img.save(png)
+            clip = work / f"scene_{i:02d}.mp4"
+            _scene_clip(ffmpeg, png, durations[i], clip, motion=motion)
+            clips.append(clip)
 
+        listing = work / "clips.txt"
+        listing.write_text("\n".join(f"file '{c.as_posix()}'" for c in clips), encoding="utf-8")
+
+        # 2. Join the clips, burning subtitles in the same pass.
         silent = work / "silent.mp4"
-        cmd = [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(concat)]
-
-        vf = [f"scale={W}:{H}:force_original_aspect_ratio=decrease",
-              f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=0x0b0f17",
-              f"fps={FPS}", "format=yuv420p"]
+        cmd = [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(listing)]
         if burn_subtitles:
             srt = write_srt(script.scenes, durations, work / "subs.srt")
-            # ffmpeg's subtitles filter needs escaped path separators
-            esc = str(srt).replace("\\", "/").replace(":", "\\:")
-            vf.insert(2, f"subtitles='{esc}':force_style='FontSize=20,PrimaryColour=&H00E6EDF6'")
-
-        cmd += ["-vf", ",".join(vf), "-c:v", "libx264", "-preset", "medium",
-                "-crf", "20", "-r", str(FPS), str(silent)]
+            cmd += ["-vf", _subtitle_filter(srt, script)]
+        cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                "-pix_fmt", "yuv420p", "-r", str(FPS), str(silent)]
         _run(cmd)
 
         real_audio = [p for p in (audio_paths or []) if p and Path(p).exists()]
@@ -136,6 +131,57 @@ def render_video(
         return out_path
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _escape_filter_path(p) -> str:
+    # ffmpeg filter arguments treat ':' as a separator, including the one in a
+    # Windows drive letter, and want forward slashes.
+    return str(p).replace("\\", "/").replace(":", "\\:")
+
+
+def _scene_clip(ffmpeg: str, png: Path, seconds: float, out: Path, motion: bool = True) -> None:
+    frames = max(1, int(round(seconds * FPS)))
+    fade = min(0.45, seconds / 5)
+    if motion:
+        # A 5% push-in over the scene. The source is upscaled first because
+        # zoompan steps in whole pixels and visibly jitters at 1280 wide.
+        step = 0.05 / frames
+        vf = [
+            "scale=2560:-2",
+            f"zoompan=z='min(zoom+{step:.6f},1.05)':x='iw/2-(iw/zoom/2)':"
+            f"y='ih/2-(ih/zoom/2)':d={frames}:s={W}x{H}:fps={FPS}",
+        ]
+        head = [ffmpeg, "-y", "-i", str(png)]
+        tail = ["-frames:v", str(frames)]
+    else:
+        vf = [f"scale={W}:{H}", f"fps={FPS}"]
+        head = [ffmpeg, "-y", "-loop", "1", "-i", str(png)]
+        tail = ["-t", f"{seconds:.3f}"]
+    vf += [f"fade=t=in:st=0:d={fade:.2f}",
+           f"fade=t=out:st={max(0.0, seconds - fade):.2f}:d={fade:.2f}",
+           "format=yuv420p"]
+    _run(head + ["-vf", ",".join(vf)] + tail +
+         ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", str(FPS), str(out)])
+
+
+def _subtitle_filter(srt: Path, script) -> str:
+    """Burn subtitles in a font that can actually render the script.
+
+    libass falls back to system fonts through fontconfig, and a cluster node
+    usually has none with Devanagari -- Hindi and Marathi subtitles would come
+    out as boxes. Pointing it at the downloaded Noto fonts avoids that. A
+    translucent box behind the text keeps it readable over an illustration.
+    """
+    from story_mvp.video.cards import FONT_DIR, has_devanagari
+
+    deva = any(has_devanagari(s.narration) for s in script.scenes)
+    family = "Noto Sans Devanagari" if deva else "Noto Sans"
+    style = (f"FontName={family},FontSize=15,PrimaryColour=&H00F6EDE6,"
+             "BorderStyle=3,BackColour=&H99000000,Outline=1,Shadow=0,MarginV=18")
+    f = f"subtitles='{_escape_filter_path(srt)}'"
+    if Path(FONT_DIR).exists():
+        f += f":fontsdir='{_escape_filter_path(FONT_DIR)}'"
+    return f + f":force_style='{style}'"
 
 
 def _run(cmd: List[str]) -> None:

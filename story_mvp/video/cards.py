@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from PIL import Image, ImageDraw, ImageFont, features
+from PIL import Image, ImageChops, ImageDraw, ImageFont, features
 
 W, H = 1280, 720
 MARGIN = 88
@@ -121,11 +121,19 @@ def _base() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
 
 
 def _footer(d: ImageDraw.ImageDraw, source_line: str) -> None:
+    """Source citation, drawn at the TOP of the card.
+
+    It used to sit at the bottom, where burned-in subtitles land -- the two
+    overlapped on every rendered video ('NCERT Class 6, Social Science, cOceans
+    & Continents'). A dark pill behind it keeps it legible over an illustration.
+    """
     if not source_line:
         return
-    f = load_font(22)
-    d.line([(MARGIN, H - 78), (W - MARGIN, H - 78)], fill=LINE, width=1)
-    d.text((MARGIN, H - 60), source_line, font=f, fill=DIM)
+    f = load_font(20)
+    tw = d.textlength(source_line, font=f)
+    x, y = MARGIN, 26
+    d.rounded_rectangle([x - 12, y - 6, x + tw + 12, y + f.size + 8], radius=10, fill=(11, 15, 23))
+    d.text((x, y), source_line, font=f, fill=DIM)
 
 
 def _draw_block(d, text, font, x, y, max_w, fill, line_gap=14) -> int:
@@ -243,9 +251,101 @@ def check_card(heading: str, question: str, source_line: str = "") -> Image.Imag
     return img
 
 
-def render_scene(scene, script) -> Image.Image:
-    """Dispatch a scene to its card renderer."""
+# ------------------------------------------------------------ illustrated
+
+def _cover(image: Image.Image) -> Image.Image:
+    """Scale to fill 1280x720 and centre-crop, preserving aspect."""
+    img = image.convert("RGB")
+    scale = max(W / img.width, H / img.height)
+    img = img.resize((int(img.width * scale + 0.5), int(img.height * scale + 0.5)), Image.LANCZOS)
+    left, top = (img.width - W) // 2, (img.height - H) // 2
+    return img.crop((left, top, left + W, top + H))
+
+
+def _scrim(base: Image.Image, side: str) -> Image.Image:
+    """Darken one side of the picture so text over it stays readable.
+
+    Near-solid behind the text, then a smooth fade, so the illustration still
+    reads as one image instead of a picture with a panel pasted on it. A plain
+    linear fade was tried first: over a bright picture the ends of longer
+    lines sat on almost no shade and were hard to read.
+    """
+    def ramp(t: float) -> float:          # 1 inside the text area, eased to 0
+        t = min(1.0, max(0.0, t))
+        return 1 - t * t * (3 - 2 * t)
+
+    if side == "left":
+        solid, fade = int(W * 0.58), int(W * 0.30)
+        line = Image.new("L", (W, 1))
+        line.putdata([int(225 * ramp((x - solid) / fade)) for x in range(W)])
+        mask = line.resize((W, H))
+    else:  # bottom
+        solid, fade = H - 330, int(H * 0.28)
+        col = Image.new("L", (1, H))
+        col.putdata([int(230 * ramp((solid - y) / fade)) for y in range(H)])
+        mask = col.resize((W, H))
+    # A light top band keeps the source pill readable on bright pictures.
+    band = Image.new("L", (1, H))
+    band.putdata([int(150 * max(0.0, 1 - y / 110)) for y in range(H)])
+    mask = ImageChops.lighter(mask, band.resize((W, H)))
+    shade = Image.new("RGB", (W, H), BG)
+    return Image.composite(shade, base, mask)
+
+
+def illustrated_card(image: Image.Image, key: str, heading: str, body: str,
+                     source_line: str = "", subtitle: str = "") -> Image.Image:
+    """An illustration with the scene's text drawn over it by Pillow.
+
+    The image model only ever paints the picture; every word here is drawn by
+    Pillow, so Devanagari is shaped correctly and nothing on screen is a
+    diffusion model's attempt at spelling.
+    """
+    text = " ".join([heading, body, subtitle])
+    deva = has_devanagari(text)
+    if deva:
+        ensure_devanagari_support()
+
+    side = "bottom" if key == "check" else "left"
+    img = _scrim(_cover(image), side)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, W, 6], fill=ACCENT)
+
+    if key == "title":
+        y = _draw_block(d, heading, load_font(62, deva), MARGIN, 250, int(W * 0.52), TXT, 16)
+        if subtitle:
+            d.text((MARGIN, y + 18), subtitle, font=load_font(30, deva), fill=ACCENT)
+    elif key == "check":
+        d.text((MARGIN, H - 290), heading, font=load_font(30, deva), fill=ACCENT2)
+        _draw_block(d, body, load_font(40, deva), MARGIN, H - 240, W - 2 * MARGIN, TXT, 14)
+    else:  # idea
+        d.text((MARGIN, 150), heading, font=load_font(30, deva), fill=ACCENT)
+        _draw_block(d, body, load_font(44, deva), MARGIN, 212, int(W * 0.50), TXT, 16)
+
+    _footer(d, source_line)
+    return img
+
+
+def render_scene(scene, script, image: Optional[Image.Image] = None) -> Image.Image:
+    """Dispatch a scene to its card renderer.
+
+    With an illustration, title/idea/check are drawn over the picture. The
+    diagram is always drawn from its node/edge spec and never illustrated,
+    because it is the one card whose content must be exactly right.
+    """
     src = script.source_line
+    if image is not None and scene.key != "diagram":
+        sub = ""
+        if scene.key == "title":
+            sub = " · ".join(x for x in [
+                f"Class {script.class_level}" if script.class_level else "",
+                script.subject.replace("_", " ").title() if script.subject else "",
+            ] if x)
+            heading = script.title or scene.heading
+            return illustrated_card(image, "title", heading, "", src, sub)
+        if scene.key == "check":
+            return illustrated_card(image, "check", scene.heading or "Your turn", scene.body, src)
+        return illustrated_card(image, "idea", scene.heading, scene.body, src)
+
     if scene.key == "title":
         sub = " · ".join(x for x in [
             f"Class {script.class_level}" if script.class_level else "",
