@@ -11,6 +11,11 @@ REQ = {"language": "hindi", "class_level": "7", "subject": "science", "question"
 SOURCES = [{"marker": "S1", "class_level": "7", "subject": "science", "chapter": "10", "page": 8}]
 
 
+def structural(problems):
+    """These tests use placeholder narration; length has its own tests."""
+    return [p for p in problems if "too short" not in p]
+
+
 def good_scene(n):
     return {"heading": f"शीर्षक {n}", "body": "पौधे सूर्य के प्रकाश से भोजन बनाते हैं।",
             "narration": "पौधे पत्तियों में सूर्य के प्रकाश से भोजन बनाते हैं।"}
@@ -32,7 +37,7 @@ def test_translated_top_level_and_scene_keys_are_recovered():
     script = _assemble(reply, {"question": "q"}, REQ, SOURCES, "ollama")
     assert all(s.narration for s in script.scenes), "scenes still empty after recovery"
     assert script.diagram_nodes == ["सूर्य का प्रकाश", "पत्ती", "भोजन"]
-    assert validate(script, 1) == []
+    assert structural(validate(script, 1)) == []
 
 
 def test_scenes_as_a_list_are_mapped_in_order():
@@ -60,7 +65,7 @@ def test_edge_endpoints_missing_from_nodes_are_added():
     script = _assemble(reply, {"question": "q"}, {**REQ, "language": "english"}, SOURCES, "ollama")
     lowered = [n.lower() for n in script.diagram_nodes]
     assert "oceans" in lowered and "continents" in lowered
-    assert validate(script, 1) == []
+    assert structural(validate(script, 1)) == []
 
 
 def test_recovery_never_invents_content():
@@ -111,7 +116,7 @@ def test_two_node_diagram_is_accepted():
                         for k in ("title", "idea", "diagram", "check")},
              "diagram_nodes": ["Hot water", "Spoon"], "diagram_edges": [["Hot water", "Spoon"]]}
     script = _assemble(reply, {"question": "q"}, {**REQ, "language": "english"}, SOURCES, "ollama")
-    assert validate(script, 1) == []
+    assert structural(validate(script, 1)) == []
 
 
 def test_one_word_overrun_is_tolerated_but_a_long_one_is_not():
@@ -123,6 +128,6 @@ def test_one_word_overrun_is_tolerated_but_a_long_one_is_not():
             "diagram_nodes": ["a", "b"], "diagram_edges": [["a", "b"]]}
     script = _assemble(base, {"question": "q"}, {**REQ, "language": "english"}, SOURCES, "ollama")
     script.scenes[3].narration = " ".join(["w"] * 15)   # budget 14
-    assert validate(script, 1) == []
+    assert structural(validate(script, 1)) == []
     script.scenes[3].narration = " ".join(["w"] * 40)
-    assert validate(script, 1)
+    assert structural(validate(script, 1))

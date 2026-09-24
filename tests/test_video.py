@@ -158,3 +158,12 @@ def test_subtitles_are_written_in_srt_time_format():
     assert "00:00:00,000 --> 00:00:04,000" in text
     assert "00:00:13,000 --> 00:00:24,000" in text
     assert "Heat always flows" in text
+
+
+def test_a_near_empty_script_is_sent_back():
+    """Four words across four scenes passed on Sol and explained nothing."""
+    s = demo_script()
+    for scene in s.scenes:
+        scene.narration = "पौधे"
+    problems = validate(s, n_sources=1)
+    assert sum("too short" in p for p in problems) == 4

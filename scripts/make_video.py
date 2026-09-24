@@ -198,9 +198,16 @@ def main() -> int:
         # Load once, up front, so a missing diffusers or GPU is reported
         # before any concept runs -- and then the batch continues on text cards.
         if not illustrator.available:
-            print(f"\nNOTE: illustrations disabled ({illustrator.failure}).")
-            print("      Videos will use text cards. To enable pictures:")
-            print("        pip install -U diffusers accelerate sentencepiece protobuf\n")
+            reason = illustrator.failure or ""
+            print("\nNOTE: illustrations disabled -- videos will use text cards.")
+            if "gated" in reason or "403" in reason or "401" in reason:
+                print("      The image model is gated. Signed in to Hugging Face, open")
+                print(f"        https://huggingface.co/{illustrator.model_id}")
+                print("      click 'Agree and access repository', then run again.\n")
+            elif "No module" in reason or "cannot import" in reason:
+                print("      pip install -U diffusers accelerate sentencepiece protobuf\n")
+            else:
+                print(f"      {reason.splitlines()[0] if reason else 'unknown error'}\n")
             illustrator = None
 
     results = []

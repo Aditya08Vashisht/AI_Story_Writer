@@ -34,6 +34,11 @@ SCENE_BUDGET = {
 }
 TOTAL_SECONDS = sum(v[0] for v in SCENE_BUDGET.values())
 
+# The floor, not only the ceiling. With no minimum, a Hindi script of four
+# words in total -- one per scene -- passed validation on Sol and made a
+# 30-second video that explained nothing. About half of each budget.
+SCENE_MIN_WORDS = {"title": 4, "idea": 10, "diagram": 12, "check": 6}
+
 SCRIPT_INSTRUCTION = (
     "Write the video script now. Reply with the JSON object only, using exactly "
     "the keys shown in the instructions: title, scenes (title, idea, diagram, "
@@ -197,6 +202,11 @@ def validate(script: VideoScript, n_sources: int, require_visuals: bool = False)
             problems.append(f"scene '{scene.key}': {words} words of narration, limit {limit}")
         if not scene.narration.strip():
             problems.append(f"scene '{scene.key}': empty narration")
+        elif words < SCENE_MIN_WORDS.get(scene.key, 0):
+            problems.append(
+                f"scene '{scene.key}': narration too short, {words} words -- write a "
+                f"full spoken sentence of at least {SCENE_MIN_WORDS[scene.key]} words"
+            )
         if count_words(scene.body) > 20:
             problems.append(f"scene '{scene.key}': on-screen body too long for a card")
 
@@ -270,10 +280,11 @@ def script_from_answer(
     providers = list(getattr(client, "clients", [client]))
 
     last_problems: List[str] = []
-    # A script whose narration and diagram are right but whose picture
-    # descriptions are not is still a good video -- those scenes just get text
-    # cards. Kept as a fallback so a bad `visual` never costs the whole video.
-    visual_only_fallback: Optional[VideoScript] = None
+    # A script that is correct but a little short, or whose picture
+    # descriptions are unusable, is still a video -- those scenes get text
+    # cards. The fullest such script is kept so these never cost the video;
+    # the retries exist to do better, not to refuse.
+    fallback: Optional[VideoScript] = None
     for attempt in range(max_attempts):
         prompt = base_prompt
         if last_problems:
@@ -314,16 +325,23 @@ def script_from_answer(
         problems = validate(script, len(sources), require_visuals=want_visuals)
         if not problems:
             return script
-        if all("'visual'" in p for p in problems):
-            visual_only_fallback = _drop_bad_visuals(script)
+        if all(_is_soft(p) for p in problems) and (
+                fallback is None or script.total_words > fallback.total_words):
+            fallback = _drop_bad_visuals(script)
         last_problems = problems
         print(f"video script attempt {attempt+1} rejected: {problems}")
         _dump_reply(debug_dir, request, attempt + 1, raw, problems)
 
-    if visual_only_fallback is not None:
-        print("video script: keeping the script; scenes with unusable 'visual' get text cards")
-        return visual_only_fallback
+    if fallback is not None:
+        print(f"video script: keeping the best attempt ({fallback.total_words} words); "
+              f"remaining issues: {last_problems}")
+        return fallback
     raise ScriptError(f"could not produce a valid script in {max_attempts} attempts: {last_problems}")
+
+
+def _is_soft(problem: str) -> bool:
+    """Problems that make a video weaker, not wrong."""
+    return "'visual'" in problem or "too short" in problem
 
 
 def _drop_bad_visuals(script: VideoScript) -> VideoScript:
