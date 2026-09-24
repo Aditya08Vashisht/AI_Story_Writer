@@ -49,6 +49,23 @@ class GroqQwenClient(BaseModelClient):
         return parse_json_response(completion.choices[0].message.content)
 
 
+def normalize_ollama_host(value: str) -> str:
+    """Accept OLLAMA_HOST in either form the ecosystem uses.
+
+    The ollama CLI and server take a bare "127.0.0.1:11434"; an HTTP client
+    needs "http://127.0.0.1:11434". Both read the same variable, so whichever
+    form a user exports, one side breaks -- the bare form made urllib fail
+    with "unknown url type: 127.0.0.1". Normalising here means the variable
+    can hold either and nobody has to remember which consumer wants what.
+    """
+    v = (value or "").strip().rstrip("/")
+    if not v:
+        return "http://127.0.0.1:11434"
+    if not v.startswith(("http://", "https://")):
+        v = "http://" + v
+    return v
+
+
 class OllamaClient(BaseModelClient):
     provider_name = "ollama"
 
@@ -57,7 +74,7 @@ class OllamaClient(BaseModelClient):
         # valid JSON and handles Hindi/Marathi. The old 1.7b default was a
         # placeholder and produces unusable answers for this task.
         self.model = model or os.environ.get("OLLAMA_MODEL", "qwen3:8b")
-        self.host = (host or os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")).rstrip("/")
+        self.host = normalize_ollama_host(host or os.environ.get("OLLAMA_HOST", ""))
         # 30s was tuned for a tiny model. An 8B model generating a grounded
         # multi-paragraph answer routinely exceeds it, and every timeout looks
         # identical to "no model reachable".

@@ -31,9 +31,11 @@ def preflight_llm() -> bool:
     """Confirm a generation provider answers before anything expensive loads."""
     import urllib.request
 
-    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
-    if not host.startswith("http"):
-        host = "http://" + host
+    from story_mvp.model_clients import normalize_ollama_host
+
+    # Same normalisation the client uses. A private copy here is how preflight
+    # passed while every real request failed on the scheme-less host.
+    host = normalize_ollama_host(os.environ.get("OLLAMA_HOST", ""))
     model = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 
     try:
