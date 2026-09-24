@@ -52,15 +52,47 @@ def test_normalize_maps_sst_aliases():
     assert normalize_chat_request({"question": "q", "subject": "social science"})["subject"] == "social_science"
 
 
-def test_prompt_carries_no_story_concepts():
-    """The whole point of this module: a tutor, not a fiction engine."""
+def test_prompt_instructs_tutoring_not_story_generation():
+    """Guards the product identity, not a word list.
+
+    Checked twice before by banning substrings, which kept firing on the very
+    lines that FORBID story generation ("do not invent characters"). What
+    matters is whether the prompt *directs* fiction, so this asserts on
+    directives and on the prohibition being present.
+    """
     p = build_chat_prompt(normalize_chat_request({"question": "q", "language": "marathi"}), "[S1] ...")
-    # "StoryTutor" is the product's name, not a story-generation concept.
-    lowered = p.lower().replace("storytutor", "")
-    for banned in ("genre", "thriller", "story", "cliffhanger", "character", "narrat"):
-        assert banned not in lowered, f"story concept leaked into the chat prompt: {banned}"
-    assert "Marathi" in p
-    assert "[S1]" in p
+    lowered = p.lower()
+
+    for directive in ("write a story", "genre:", "tone:", "cliffhanger",
+                      "story bible", "scene expander", "hook generator",
+                      "audio-first", "serialized listening"):
+        assert directive not in lowered, f"story-generation directive leaked: {directive}"
+
+    # The prohibition itself must survive.
+    assert "invent characters, dialogue or fictional scenes" in lowered
+    assert "never" in lowered
+
+
+def test_prompt_separates_facts_from_pedagogy():
+    """The change that makes it teach: analogies are allowed and uncited,
+    curriculum facts are neither."""
+    p = build_chat_prompt(normalize_chat_request({"question": "q", "class_level": "6"}), "[S1] ...")
+    lowered = p.lower()
+    assert "analog" in lowered, "prompt never invites an analogy"
+    assert "[s1]" in lowered, "prompt never shows the citation format"
+    assert "need no citation" in lowered or "no citation" in lowered
+    # class-appropriate pitch actually varies
+    p8 = build_chat_prompt(normalize_chat_request({"question": "q", "class_level": "8"}), "[S1] ...")
+    assert p != p8, "prompt does not adapt to class level"
+
+
+def test_prompt_language_and_pitch_adapt():
+    mr = build_chat_prompt(normalize_chat_request({"question": "q", "language": "marathi"}), "x")
+    en = build_chat_prompt(normalize_chat_request({"question": "q", "language": "english"}), "x")
+    # Both prompts name all three languages when describing scope, so assert on
+    # the reply directive specifically.
+    assert "Reply in Marathi." in mr
+    assert "Reply in English." in en
 
 
 def test_empty_question_short_circuits():

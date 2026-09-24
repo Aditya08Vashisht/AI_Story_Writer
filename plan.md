@@ -1,57 +1,65 @@
-# plan.md — StoryTutor-MM: multilingual curriculum RAG + video, end to end
+# plan.md — StoryTutor-MM: a curriculum RAG tutor that teaches well
 
-**Goal:** a fully open-source, GPU-accelerated, curriculum-grounded RAG tutor that
-answers Class 6–8 Science / Social-Science questions from NCERT source text in
-English, Hindi, and Marathi — and renders **2–3 explainer videos** as the final
-research deliverable.
+**Product:** a multilingual chatbot that answers NCERT Class 6–8 Science and
+Social-Science questions from the real textbooks, in English, Hindi or Marathi —
+**fast enough to feel instant, and explained well enough to actually teach.**
 
 **Hard constraints**
-- Every model OSI-open (Apache-2.0 / MIT). No exceptions without a recorded decision.
-- **No third-party APIs. No API keys. No paid services anywhere in the runtime path.**
-- Total cash cost: **$0** (see §9).
+- Every model OSI-open (Apache-2.0 / MIT). No paid APIs. No API keys. **$0.**
+- **No rule engines in the reasoning path.** Pattern lists go in guardrails only,
+  where determinism is the point; everything else is the model's judgement.
+- Every factual claim cites a real retrieved page, or the system says it doesn't know.
 
-**Date:** 2026-09-23 · **Supersedes** the 2026-09-21 and earlier 2026-09-23 drafts.
+**Date:** 2026-09-24 · supersedes all earlier plans.
 
 ---
 
-## 0. Status
+## 0. Where we are
 
-### Built and verified
+### Working and measured
 
 | Component | Evidence |
 | --- | --- |
-| Corpus: 282 PDFs → 7,992 chunks | `ingestion_audit.json`, 0 errors, all 18 cells |
-| FAISS index on GPU (bge-m3, 1024-dim) | built in **2:58** on A100-80GB |
-| **Hybrid retrieval: dense + BM25 → RRF → cross-encoder** | API returns `retrieval_method: hybrid_rrf_rerank` |
-| Citation-grounded prompt (`[S1]` markers) | shipped |
-| Golden set: 268 questions, 50 reviewed | 60% keep — **en 89% / mr 45% / hi 36%** |
-| Retrieval eval harness | written, **not yet run** |
+| Corpus: 282 PDFs → 7,086 chunks | 0 errors, all 18 class×subject×language cells |
+| **Devanagari repair** | damage median: hindi 100.7→**10.9**, marathi 72.7→**9.1** |
+| Glyph intruders removed | **34,985 → 98** |
+| FAISS index on GPU | 7,126 vectors, built in 2:58 on A100 |
+| **Hybrid retrieval** dense+BM25→RRF→cross-encoder | live; `hybrid_rrf_rerank`, top score **0.956** |
+| Hindi + Marathi retrieval | **verified working** — correct chapters and pages |
+| Guardrails | injection, PII redaction, invented-citation stripping, groundedness |
+| Chat UI | React, citations clickable, pipeline visible |
+| Tests | **88 passing** |
 
-### Not built
-vLLM generation (queued), language-aware retrieval, TTS, video rendering,
-guardrails, full RAG eval, corpus re-extraction.
+### Not working yet
 
-### Unknown
-**Whether retrieval works in Hindi and Marathi.** No non-English query has ever
-been evaluated. Every Indic claim below is inference, not measurement.
+**No LLM has ever run.** Every vLLM job died on environment setup; Ollama is
+installed but unproven. So generation has never been exercised — the system has
+only ever returned raw passages.
+
+### The two gaps this plan closes
+
+1. **It doesn't teach.** The current prompt optimises for groundedness and
+   produces textbook regurgitation. A student who didn't understand the book
+   will not understand a paraphrase of the book.
+2. **It doesn't feel instant.** A full answer takes 5–10s with nothing on
+   screen until it's done.
 
 ---
 
-## 1. What you must do manually
+## 1. Principles
 
-Everything else is automated. This is the complete list of human-only work.
-
-| # | Task | When | Why only you can do it |
-| --- | --- | --- | --- |
-| 1 | `huggingface-cli login` | Before large downloads | **Optional.** All models are ungated — this only lifts anonymous rate limits. Token is free, `read` scope. Write it once; `HF_HOME` on `/scratch` shares it to every compute node. |
-| 2 | Choose generator size | Before Phase D | `Qwen3-8B` queues faster; `Qwen3-14B` is stronger. For 3 videos, 8B is likely enough. |
-| 3 | **Native-speaker check of 13 Indic golden items** | Before trusting Indic numbers | I reviewed them as an LLM proxy, not a fluent Marathi/Hindi speaker. The `keep_noisy` items need real eyes. |
-| 4 | Pick the 2–3 video topics | Phase G | Research judgement — which questions best demonstrate the system. |
-| 5 | Approve Docling re-ingest | After Phase A | Costs ~2 GPU-hours; only worth it if the eval says Marathi is broken. |
-
-**API keys required: none.** Not one. `GROQ_API_KEY` and `SARVAM_API_KEY` exist in
-the codebase as legacy optional paths and stay **unset** — that's what makes the
-local vLLM server the primary provider.
+1. **Intelligence, not rules.** The model routes, interprets and explains.
+   Deterministic logic is confined to guardrails, where being un-negotiable is
+   the whole point — a prompt-injection check must not be arguable.
+2. **Cite facts, own the pedagogy.** A retrieved fact needs `[S1]`. An analogy,
+   a framing, an everyday example is the model's own contribution and needs no
+   citation — it must simply not contradict the sources. Conflating these is
+   what produces dry, uncitable-therefore-omitted explanation.
+3. **Stream everything.** Perceived latency is the product.
+4. **Refuse rather than guess.** Out of syllabus → say so, name the nearest chapter.
+5. **Degrade loudly.** `model_provider` and `retrieval_method` in every response.
+6. **Measure teaching, not just retrieval.** Recall@5 says nothing about whether
+   a 12-year-old understood.
 
 ---
 
@@ -59,340 +67,182 @@ local vLLM server the primary provider.
 
 ```mermaid
 flowchart TD
-    subgraph Data["Data tier - offline, sbatch"]
-        PDF["282 NCERT PDFs"] --> EXT{"Extractor"}
-        EXT -->|"english OK"| CHK
-        EXT -->|"marathi conjuncts corrupted"| DOC["Docling re-extract"]
-        DOC --> CHK["Structure-aware chunking"]
-        CHK --> EMB["bge-m3 embeddings"]
-        CHK --> BM["BM25, Devanagari tokenizer"]
-        EMB --> FA["FAISS IndexFlatIP"]
-    end
+    Q["Student message<br/>any language, any intent"] --> GI["Guardrails: input<br/>injection · PII · length<br/>(deterministic)"]
+    GI --> QU["Query understanding<br/>model rewrites + expands<br/>Phase C"]
+    QU --> HY["Hybrid retrieval<br/>dense + BM25"]
+    HY --> RRF["RRF fusion"]
+    RRF --> RR["Cross-encoder rerank<br/>top 30 → top 5"]
+    RR --> GEN["Pedagogical generation<br/>model decides intent AND<br/>how to teach it"]
+    GEN --> ST["Stream tokens to UI"]
+    ST --> GO["Guardrails: output<br/>citation validation<br/>groundedness"]
+    GO --> UI["Answer + clickable citations"]
 
-    subgraph Query["Query tier"]
-        Q["Question + class/subject/language"] --> LID["Language ID"]
-        LID -->|"hi/mr"| TR["IndicTrans2 200M"]
-        LID -->|"en"| SG["single query"]
-        TR --> DU["dual query"]
-    end
-
-    subgraph Ret["Retrieval tier"]
-        DU --> HY["Hybrid search"]
-        SG --> HY
-        HY --> RRF["Reciprocal Rank Fusion"]
-        RRF --> RR["bge-reranker-v2-m3"]
-        RR --> GT{"evidence?"}
-    end
-
-    subgraph Gen["Generation tier - local vLLM"]
-        GT -->|"no"| AB["Abstain, name chapter"]
-        GT -->|"yes"| RO{"language router"}
-        RO -->|"hi/mr"| SV["Sarvam-M 24B AWQ"]
-        RO -->|"en"| QW["Qwen3 AWQ"]
-        SV --> GU["Guardrails"]
-        QW --> GU
-        GU --> RS["JSON + citations"]
-    end
-
-    subgraph Vid["Video tier - deterministic"]
-        RS --> VS["video_script<br/>70-80 words, 4 scenes"]
-        VS --> TTS["Indic Parler-TTS"]
-        VS --> DG["Graphviz diagram"]
-        VS --> PC["Pillow cards<br/>Noto Sans Devanagari + raqm"]
-        TTS --> FF["FFmpeg assemble"]
-        DG --> FF
-        PC --> FF
-        FF --> MP4["1280x720 MP4, ~30s"]
-    end
-
-    FA -.-> HY
-    BM -.-> HY
-
+    style GEN fill:#7c4dff,color:#fff
+    style ST fill:#b45309,color:#fff
+    style QU fill:#7c4dff,color:#fff
     style HY fill:#2d6a4f,color:#fff
-    style RRF fill:#2d6a4f,color:#fff
     style RR fill:#2d6a4f,color:#fff
-    style TR fill:#7c4dff,color:#fff
-    style RO fill:#7c4dff,color:#fff
-    style TTS fill:#b45309,color:#fff
-    style FF fill:#b45309,color:#fff
 ```
 
-Green = running · Purple = language-aware additions · Amber = video tier
+Green = built · Purple = intelligence upgrades · Amber = latency
 
-### Why language handling is three tiers, not one
+**No intent classifier in this diagram.** Retrieval runs on every message
+(~50 ms) and the generation prompt decides whether the passages are relevant.
+That handles mixed intent — *"hi, explain photosynthesis"* — which no router
+splits cleanly. A semantic classifier exists **only** as the no-LLM fallback.
 
-| Tier | Failure it prevents | Cost |
+---
+
+## 3. The answer-quality problem
+
+This is the core of this plan, and it is a prompt-and-eval problem, not an
+infrastructure one.
+
+### What's wrong now
+
+The prompt says *"answer from the sources, cite every factual sentence, 2–4
+paragraphs, no invented scenarios."* Optimised for not-hallucinating. The
+predictable result is a citation-studded paraphrase of the textbook — which is
+exactly what the student already failed to understand.
+
+### The fix: separate facts from pedagogy
+
+| Layer | Source | Citation | Example |
+| --- | --- | --- | --- |
+| **Fact** | retrieved passage only | **required** `[S1]` | "Heat moves from the hotter object to the cooler one [S1]." |
+| **Intuition** | model's own | none | "Think of heat as always rolling downhill." |
+| **Analogy** | model's own | none | "Like a crowded room emptying into an empty one." |
+| **Example** | model's own, everyday | none | "That's why a steel spoon in chai gets hot but the plastic handle doesn't." |
+| **Check** | model's own | none | "So what would happen with a wooden spoon?" |
+
+The rule that keeps this safe: **an analogy is not a factual claim.** It needs
+no source, but it must not contradict one. This is what lets the model be
+genuinely explanatory without inventing curriculum content.
+
+### Answer shape
+
+1. Direct answer in one or two sentences — the student asked something, answer it
+2. The mechanism, grounded and cited
+3. An intuition or analogy that makes it click
+4. One everyday Indian example (chai, monsoon, bicycle, cricket)
+5. Optionally, one short check question
+
+Pitched by class: Class 6 gets shorter sentences and more concrete anchors than
+Class 8.
+
+### What stays forbidden
+
+Inventing facts, inventing citations, contradicting the sources, answering
+out-of-syllabus questions from general knowledge, fictional characters and
+dialogue (that was the old story-generator failure mode).
+
+---
+
+## 4. Latency
+
+Target: **first token under 1 second**, full answer under 8.
+
+| Stage | Budget | Now |
 | --- | --- | --- |
-| **Data** (Docling) | Corrupted Devanagari makes every later stage read garbage | one-off |
-| **Query** (IndicTrans2) | Thin native coverage returns nothing while a good English chunk sits unretrieved | ~1 GB |
-| **Generation** (Sarvam-M) | A generalist writes stilted Hindi/Marathi | VRAM, AWQ only |
+| Guardrails | <5 ms | ✅ |
+| Retrieval (dense + BM25 + RRF) | <100 ms | ✅ |
+| Rerank (30 candidates, GPU) | <150 ms | ✅ |
+| **First token** | **<1 s** | ❌ not streaming |
+| Full answer | <8 s | unknown |
 
-**A better Indic embedding model cannot rescue text corrupted at extraction.**
-That's why Phase B precedes any embedding swap.
+**Streaming is the whole fix.** Total generation time barely changes; what
+changes is that the student sees words immediately instead of a spinner. Server-
+sent events from Flask, incremental render in React.
+
+Per-stage timings go into every response so this is measured, not assumed.
 
 ---
 
-## 3. Model roster
+## 5. Model roster
 
-Verify each licence on its model card before release.
-
-### Running now
-
-| Role | Model | Licence | Size |
+| Role | Model | Licence | Notes |
 | --- | --- | --- | --- |
-| Embeddings | `BAAI/bge-m3` | MIT | 2.2 GB |
-| Reranker | `BAAI/bge-reranker-v2-m3` | Apache-2.0 | 2.27 GB |
-| Sparse | BM25 — in-repo, `story_mvp/bm25.py` | — | 0 |
+| Embeddings | `BAAI/bge-m3` | MIT | ✅ running |
+| Reranker | `BAAI/bge-reranker-v2-m3` | Apache-2.0 | ✅ running |
+| Sparse | BM25, in-repo | — | ✅ Devanagari-aware |
+| **Generator** | `qwen3:8b` via **Ollama** | Apache-2.0 | GGUF ~5 GB |
+| Generator (bigger) | `qwen3:14b` | Apache-2.0 | if 8b under-explains |
+| Generator (Indic A/B) | `sarvam-m` 24B | Apache-2.0 | only if evals justify it |
 
-### To add
-
-| Role | Model | Licence | bf16 | AWQ | Phase |
-| --- | --- | --- | --- | --- | --- |
-| Generator (EN) | `Qwen/Qwen3-14B` or `Qwen3-8B` | Apache-2.0 | 28 / 16 GB | 9 / 5 GB | D |
-| Generator (HI/MR) | `sarvamai/sarvam-m` 24B | Apache-2.0 | 48 GB | 14 GB | D |
-| Query translation | `ai4bharat/indictrans2-indic-en-dist-200M` | MIT* | 1 GB | — | C |
-| **TTS** | **`ai4bharat/indic-parler-tts`** | **Apache-2.0** | ~3 GB | — | G |
-| Extraction | Docling | MIT | CPU | — | B |
-| Groundedness | `vectara/hallucination_evaluation_model` | Apache-2.0 | 0.7 GB | — | E |
-| Safety | `ibm-granite/granite-guardian-3.x` | Apache-2.0 | 5 GB | — | E |
-| Eval judge | `Qwen/Qwen3-32B` | Apache-2.0 | 65 GB | 19 GB | F |
-
-<sub>*AI4Bharat licences vary by artifact — confirm IndicTrans2's before release.</sub>
-
-### TTS decision
-
-**`ai4bharat/indic-parler-tts`** — Apache-2.0, 21 languages covering Hindi,
-Marathi *and* Indian-accented English in **one model**, trained on 8,385 hours.
-One model for all three target languages removes an entire routing layer.
-
-Fallbacks, in order: `hexgrad/Kokoro-82M` (Apache-2.0, fast, weak Indic) →
-`facebook/mms-tts-{hin,mar}` (**CC-BY-NC — research only, blocks any future
-deployment; use only if the others fail**).
-
-**Rejected:** Coqui XTTS-v2 (CPML, non-commercial).
-
-### Rejected on licence
-Llama 3.x / Llama Guard (Llama Community), Gemma 3 / ShieldGemma (Gemma Terms),
-FLUX.1-dev (non-commercial), SD 3.5 (revenue-gated), `jina-embeddings-v3` (CC-BY-NC).
-
-### Deliberately NOT used
-**No image-generation model.** FLUX.1-schnell is Apache-2.0 and was in earlier
-drafts, but for a 2–3 video research deliverable it is the wrong tool: 24 GB
-download, GPU time, and *non-reproducible* output. Graphviz diagrams + Pillow
-cards are deterministic, legible, CPU-only, and defensible in a paper.
+**Ollama over vLLM**, decided by experience: vLLM failed on environment setup
+every single attempt because it pins torch and needs its own conda env. Ollama
+is one static binary, GGUF weights are ~3× smaller, `OllamaClient` already
+existed, and it binds `127.0.0.1` on the same node as Flask — no endpoint file,
+no cross-node discovery.
 
 ---
 
-## 4. Local servers
+## 6. Phases
 
-Three processes. All local, all open, none requiring credentials.
+### A — Generation quality *(the point of this plan)*
+Rewrite `build_chat_prompt` around §3: fact/pedagogy separation, the five-part
+answer shape, class-appropriate pitch. Keep every grounding rule.
+**Exit:** side-by-side answers are explanatory, not paraphrase; citations still
+100% valid.
 
-| Server | Command | Port | Purpose |
-| --- | --- | --- | --- |
-| **vLLM** | `sbatch slurm/serve_vllm.sbatch` | 8000 | OpenAI-compatible LLM endpoint on a GPU node |
-| **Flask app** | `python -m story_mvp.app` | 5050 | RAG pipeline + `/api/generate` |
-| Static demo | `node story_mvp/serve_static.js` | 5051 | Offline UI, no backend |
+### B — Streaming
+`POST /api/chat/stream` (SSE) + incremental React render. Ollama and the
+OpenAI-compatible providers both support token streaming.
+**Exit:** first token <1 s measured.
 
-**Order matters.** vLLM must be `R` (not `PD`) before the app starts, and env vars
-must be exported **before** launch — the app builds its provider chain at import,
-so exporting afterwards silently does nothing. This has already bitten once.
+### C — Query understanding
+Before retrieval, the model rewrites the question: resolve pronouns against
+history ("why?"), expand abbreviations, and for Hindi/Marathi also emit an
+English variant so both get searched and RRF-fused. Model-driven, no rules.
+**Exit:** Indic recall@5 closes on English.
 
-```bash
-# 1. wait for the server
-squeue -u $USER                        # want ST = R
-tail -f logs/vllm-*.out                # want "Uvicorn running"
+### D — Teaching evals
+Beyond retrieval metrics: explanation depth (does it go past the passage?),
+analogy presence, readability for the class level, citation validity,
+groundedness. Judged locally by `qwen3:14b`, a different model than the one
+generating, to limit self-preference.
+**Exit:** baseline scorecard in `eval/reports/`.
 
-# 2. THEN launch the app
-cd $PROJ
-export STORYTUTOR_ENABLE_RERANK=1
-export VLLM_BASE_URL=$(cat slurm/vllm_endpoint.txt)
-export VLLM_MODEL=Qwen/Qwen3-8B
-python -m story_mvp.app
-```
-
-`serve_vllm.sbatch` writes its node:port to `slurm/vllm_endpoint.txt` and clears
-it on exit, so a dead server can't leave a live-looking address behind.
-
----
-
-## 5. API surface
-
-**All internal. Zero third-party calls.**
-
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/api/generate` | POST | Full RAG pipeline → JSON + citations |
-| `/api/health` | GET | `model_provider`, `engine`, embedding model |
-| `/api/options` | GET | Valid enum values |
-| `/api/demo` | GET | Canned demo payloads |
-| `/api/video` *(Phase G)* | POST | Render MP4 from a generate response |
-
-**Consumed locally:** vLLM `POST {VLLM_BASE_URL}/chat/completions`
-(OpenAI-compatible, `Authorization: Bearer EMPTY` — no real key).
-
-**Response contract is frozen.** Additive keys only; `test_ai_integration.py`
-asserts the AI and deterministic paths return identical key sets.
+### E — Adaptive follow-up
+Use conversation history so "explain it more simply" or "why?" works without
+re-asking. Partly built (history is already passed).
 
 ---
 
-## 6. Local → Sol workflow
-
-Established and working. Code goes through GitHub; big data never does.
-
-```bash
-# on Windows
-git add -A && git commit -m "..." && git push origin main
-
-# on Sol
-cd /scratch/$USER/storytutor && git pull
-```
-
-| Payload | Route |
-| --- | --- |
-| Code, docs, eval sets | **GitHub** (~1 MB) |
-| `curriculum_chunks.json` | committed as `corpus.tar.gz` (4 MB) |
-| 282 NCERT PDFs (2.5 GB) | Globus / `rsync` — only needed for Phase B |
-| Model weights | downloaded on Sol into `HF_HOME=/scratch/$USER/hf_cache` |
-
-**Never `git add` the PDFs.** `.gitignore` covers them; before that fix a plain
-`git add -A` would have staged 294 files / 2.5 GB.
-
-**Environments:** `storytutor` (app + retrieval) and `storytutor-vllm`
-(server, isolated). Separate because vLLM pins torch tightly and would replace
-the `torch 2.14.0+cu130` build the working retrieval stack runs on.
-
----
-
-## 7. Phases
-
-### A — Measure ← **do first, no LLM needed**
-```bash
-sbatch slurm/retrieval_eval.sbatch
-```
-`recall@{1,5,10}`, `chapter_hit@{1,5}`, MRR, empty-results — **sliced by
-language**, run with and without the reranker. Caveat baked into the script:
-`gold_chunk_ids` is the chunk each question was *extracted from*, not
-necessarily the one holding its answer; read `chapter_hit@k` alongside.
-**Exit:** baseline in `eval/reports/`.
-
-### B — Corpus repair *(gated on A)*
-Docling re-extraction, structure-aware chunking, drop chunks <200 chars
-(today's minimum is **3 characters**). **Test on one Marathi PDF before
-committing** — if Docling doesn't fix the conjunct corruption, fall back to
-PyMuPDF or OCR. **Exit:** Marathi keep-rate materially above 45%.
-
-### C — Language-aware retrieval
-Language ID → IndicTrans2 `hi/mr → en` → retrieve both queries → RRF-fuse →
-tag which query surfaced each source. **Exit:** Indic `recall@5` closes against English.
-
-### D — Generation
-vLLM + Qwen3 (AWQ). Add Sarvam-M and route by language **only if the A/B shows
-it wins** on Hindi/Marathi. Honour `output_type` and `difficulty`, which today
-reach the prompt and branch nothing. **Exit:** ≥95% parseable JSON; every
-factual sentence cited.
-
-### E — Guardrails
-Input (scope, injection, PII) → retrieval (evidence gate) → output (HHEM
-groundedness, citation enforcement, Granite Guardian, age-appropriateness).
-Track benign false-positive rate — a guardrail that blocks real learners is its
-own failure. **Exit:** 0 unsafe; benign FP <2%.
-
-### F — Full RAG eval
-RAGAS with **Qwen3-32B as a local judge** — no paid API in the eval loop. Plus
-multilingual consistency: the same question in en/hi/mr should agree
-semantically. **Exit:** faithfulness ≥0.85; per-language spread ≤10 points.
-
-### G — Video *(the deliverable)*
-
-| Scene | Time | Visual | Narration |
-| --- | --- | --- | --- |
-| 1 Title | 0–4 s | Title card + class/subject badge | ≤10 words |
-| 2 Story | 4–14 s | Illustrated story card | ≤25 words |
-| 3 Concept | 14–25 s | Animated Graphviz diagram | ≤28 words |
-| 4 Check | 25–30 s | Quiz card | ≤12 words |
-
-**Word budgets are load-bearing:** ~2.5 words/s English, ~2.2 Hindi/Marathi →
-30 s ≈ **70–80 words total**. The current `narration_script` splices
-`story[:280]` (~45 words for *one* scene) — that would produce a 60-second video.
-Hence a new word-budgeted `video_script` field.
-
-**Devanagari needs Pillow's `raqm` layout engine**, not just the right font, or
-conjuncts render wrong. Test Hindi *and* Marathi explicitly.
-
-**Exit:** 2–3 MP4s, 28–32 s, correct Devanagari in overlays and burned subtitles.
-
----
-
-## 8. Decision gates
-
-| If Phase A shows… | Then |
-| --- | --- |
-| Marathi recall ≪ English | Phase B is top priority |
-| Low `recall@k`, high `chapter_hit@k` | Chunking problem — fix chunking, skip re-extraction |
-| `empty_results` > 0 | Filter-negotiation bug — fix first |
-| Rerank ≈ no-rerank | Cross-encoder isn't earning its cost |
-| All three comparable | **Skip B and C** — go straight to D and G |
-
----
-
-## 9. Cost
-
-| Item | Cost |
-| --- | --- |
-| All model weights | **$0** — Apache-2.0 / MIT |
-| Compute on Sol (~12 GPU-hrs for 2–3 videos) | **$0** |
-| Storage (~60 GB of 100 TiB) | **$0** |
-| APIs / keys | **$0** — none used |
-| **Total** | **$0** |
-
-For reference only: the same 12 GPU-hours rented would be ~$18 (A100 @ $1.49/hr),
-and the same workload on a paid API at pilot scale would run ~$1,400–2,100/month.
-
-**Your real constraint is queue time, not money.** For a 3-video scope use
-`Qwen3-8B` on `--partition=public` (7-day limit) rather than `htc` (4-hour cap).
-
----
-
-## 10. Risks
-
-| Risk | Mitigation |
-| --- | --- |
-| Docling doesn't fix Marathi conjuncts | Test one PDF first; PyMuPDF/OCR fallback |
-| Two-model routing exceeds VRAM | AWQ from the start — bf16 is 78 GB on an 80 GB card |
-| Golden set is LLM-reviewed, not native-verified | Manual task #3 |
-| Devanagari renders as boxes in video | Noto Sans Devanagari + raqm; test hi *and* mr |
-| Narration overruns 30 s | Word budgets validated programmatically, not trusted |
-| Queue waits block sessions | `public` partition; `sbatch` not interactive |
-| Silent degradation | `model_provider` + `retrieval_method` in every response |
-
----
-
-## 11. Definition of done
-
-1. `git clone` + `sbatch` reproduces the system end to end.
-2. Retrieval baseline published in `eval/reports/`, sliced by language.
-3. `/api/generate` returns `model_provider: vllm` with `[S1]` citations.
-4. **2–3 rendered MP4s** — at least one Hindi or Marathi — with correct Devanagari.
-5. Zero paid API calls; every model Apache-2.0/MIT or a recorded exception.
-6. `/api/generate` key set unchanged; full test suite green.
-
----
-
-## 12. Next actions
+## 7. Run sequence
 
 ```bash
 cd $PROJ && git pull
+tar -xzf corpus.tar.gz
+sbatch --partition=htc --qos=public slurm/build_index.sbatch   # corpus changed
 
-# 1. the measurement that gates everything (no LLM needed)
-sbatch slurm/retrieval_eval.sbatch
-
-# 2. generation, on the long-limit partition
-sbatch --partition=public --qos=public --time=1-00:00:00 \
-       --export=ALL,VLLM_MODEL=Qwen/Qwen3-8B slurm/serve_vllm.sbatch
+bash scripts/setup_ollama.sh          # rootless, ~5 GB, no queue wait
+export PATH=/scratch/$USER/ollama/bin:$PATH
+export OLLAMA_HOST=http://127.0.0.1:11434
+export OLLAMA_MODEL=qwen3:8b
+export STORYTUTOR_ENABLE_RERANK=1
+python -m story_mvp.app
 ```
 
-**Sources for model/pricing claims:**
-[Indic Parler-TTS](https://huggingface.co/ai4bharat/indic-parler-tts-pretrained) ·
-[AI4Bharat TTS](https://ai4bharat.iitm.ac.in/areas/model/TTS/Indic%20Parler%20TTS/) ·
-[GPU pricing 2026](https://www.spheron.network/blog/runpod-vs-lambda-labs-2026/) ·
-[API pricing 2026](https://intuitionlabs.ai/articles/ai-api-pricing-comparison-grok-gemini-openai-claude)
+Ollama must run on the **same node** as Flask — it binds `127.0.0.1`.
+
+---
+
+## 8. Definition of done
+
+1. A Class 7 student asking a Marathi science question gets a **Marathi
+   explanation with an analogy**, cited to a real page, first token in <1 s.
+2. "hi" gets a warm greeting; an out-of-syllabus question gets an honest refusal.
+3. Citation validity 100% — zero invented markers reach the user.
+4. Teaching-quality scorecard published, sliced by language.
+5. Zero paid API calls. Every model Apache-2.0/MIT.
+6. Full test suite green.
+
+---
+
+## 9. Honest status
+
+The retrieval half is **built, measured, and working in all three languages** —
+that was the hard part and it is done. The generation half has **never run
+once**. Everything in §3 is a design, not a result, until an LLM is serving and
+§6D has produced numbers.

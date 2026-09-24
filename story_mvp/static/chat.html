@@ -179,6 +179,10 @@ textarea:focus{outline:none;border-color:var(--accent)}
 .srcbtn{margin-top:9px;background:none;border:1px solid var(--line);color:var(--dim);
   border-radius:7px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600}
 .srcbtn:hover{color:var(--txt);border-color:var(--accent)}
+.caret{display:inline-block;width:7px;height:15px;background:var(--accent);
+  margin-left:2px;vertical-align:text-bottom;animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+.timing{margin-top:7px;font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums}
 .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
   border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -250,7 +254,14 @@ function Answer({d}){
         {parts.map((p,i)=> /^\[S\d+\]$/.test(p)
           ? <span key={i} className="cite" onClick={()=>setShowSrc(true)}>{p}</span>
           : <span key={i}>{p}</span>)}
+        {d.streaming && <span className="caret"></span>}
       </div>
+      {!d.streaming && d.first_token_ms!=null && (
+        <div className="timing">
+          first token {d.first_token_ms}ms · retrieval {d.retrieval_ms}ms · total {d.total_ms}ms
+          {d.groundedness!=null && ' · groundedness '+d.groundedness}
+        </div>
+      )}
 
       {srcs.length>0 && (
         <>
@@ -279,19 +290,65 @@ function App(){
   useEffect(()=>{end.current?.scrollIntoView({behavior:'smooth'})},[msgs,busy]);
   useEffect(()=>{document.documentElement.setAttribute('data-theme',theme)},[theme]);
 
+  // Stream over SSE so the first words land in under a second. Sources arrive
+  // before any token, so citations render while the answer is still writing.
   const ask = async (text,o={})=>{
     const question=(text||q).trim(); if(!question||busy) return;
     const L=o.lang||lang, C=o.cls||cls, S=o.sub||sub;
+    const history = msgs.slice(-4).map(m=>({
+      role: m.role, content: m.role==='user' ? m.text : (m.data?.answer||'')
+    })).filter(h=>h.content);
+
     setMsgs(m=>[...m,{role:'user',text:question,lang:L}]); setQ(''); setBusy(true);
+    const idx = msgs.length + 1;
+    setMsgs(m=>[...m,{role:'assistant',data:{answer:'',sources:[],streaming:true}}]);
+
     try{
-      const r = await fetch('/api/chat',{
+      const r = await fetch('/api/chat/stream',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({question,language:L,class_level:C,subject:S})
+        body:JSON.stringify({question,language:L,class_level:C,subject:S,history})
       });
-      const d = await r.json();
-      setMsgs(m=>[...m,{role:'assistant',data:d}]);
+      if(!r.ok || !r.body) throw new Error('stream unavailable ('+r.status+')');
+
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf='', acc='', meta={};
+      while(true){
+        const {done,value} = await reader.read();
+        if(done) break;
+        buf += dec.decode(value,{stream:true});
+        const lines = buf.split('
+
+'); buf = lines.pop();
+        for(const line of lines){
+          if(!line.startsWith('data:')) continue;
+          let ev; try{ ev = JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+          if(ev.type==='meta'){
+            meta = {...meta, ...ev};
+            setMsgs(m=>{const c=[...m]; c[idx]={...c[idx],data:{...c[idx].data,...ev,streaming:true}}; return c;});
+          } else if(ev.type==='token'){
+            acc += ev.text;
+            setMsgs(m=>{const c=[...m]; c[idx]={...c[idx],data:{...c[idx].data,answer:acc,streaming:true}}; return c;});
+          } else if(ev.type==='done'){
+            setMsgs(m=>{const c=[...m];
+              c[idx]={...c[idx],data:{...c[idx].data,...ev,answer:ev.answer||acc,streaming:false}};
+              return c;});
+          } else if(ev.type==='error'){
+            throw new Error(ev.message);
+          }
+        }
+      }
     }catch(e){
-      setMsgs(m=>[...m,{role:'assistant',error:String(e)}]);
+      // Fall back to the non-streaming endpoint rather than losing the answer.
+      try{
+        const r2 = await fetch('/api/chat',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({question,language:L,class_level:C,subject:S,history})
+        });
+        const d = await r2.json();
+        setMsgs(m=>{const c=[...m]; c[idx]={role:'assistant',data:{...d,streaming:false}}; return c;});
+      }catch(e2){
+        setMsgs(m=>{const c=[...m]; c[idx]={role:'assistant',error:String(e2)}; return c;});
+      }
     }finally{ setBusy(false) }
   };
 

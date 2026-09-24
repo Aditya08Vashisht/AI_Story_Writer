@@ -13,10 +13,12 @@ load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, jsonify, render_template, request
+import json
+
+from flask import Flask, Response, jsonify, render_template, request
 
 from story_mvp.generator import generate_story_piece, generate_story_piece_ai
-from story_mvp.rag_chat import answer_question
+from story_mvp.rag_chat import answer_question, stream_answer
 
 RAG_ENGINE = None
 LLM_CLIENT = None
@@ -158,6 +160,33 @@ def chat_api():
     result = answer_question(payload, RAG_ENGINE, LLM_CLIENT)
     result["generated_at"] = datetime.now().isoformat(timespec="seconds")
     return jsonify(result)
+
+
+@app.route("/api/chat/stream", methods=["POST"])
+def chat_stream():
+    """Server-sent events, so the first words appear in under a second.
+
+    Total generation time is the same as /api/chat; what changes is that the
+    student reads while the model is still writing instead of watching a
+    spinner. Sources are sent first, before any token, so citations can render
+    immediately.
+    """
+    payload = request.get_json(silent=True) or {}
+    if not AI_ENABLED:
+        return jsonify({"error": "retrieval engine unavailable"}), 503
+
+    def events():
+        try:
+            for event in stream_answer(payload, RAG_ENGINE, LLM_CLIENT):
+                yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+        except Exception as exc:  # noqa: BLE001
+            yield "data: " + json.dumps({"type": "error", "message": str(exc)}) + "\n\n"
+
+    return Response(
+        events(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/api/demo")

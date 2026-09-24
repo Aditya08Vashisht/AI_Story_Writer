@@ -74,51 +74,97 @@ def _recent_history(payload: Dict[str, Any], turns: int = 4) -> List[Dict[str, s
 
 
 def build_chat_prompt(request: Dict[str, str], context: str) -> str:
-    """One prompt for every kind of message.
+    """One prompt for every message, written to teach rather than paraphrase.
 
-    Deliberately not preceded by a classifier. The model can see whether the
+    Two design decisions carry most of the weight here.
+
+    First, no classifier runs before this. The model can see whether the
     student is greeting it, asking what it does, or asking a curriculum
     question -- and it handles mixed intent ("hi, explain photosynthesis")
-    that no router could split cleanly. Retrieval runs either way, because it
-    costs ~50ms and the model can simply ignore irrelevant sources.
+    that no router splits cleanly. Retrieval runs either way; irrelevant
+    passages can simply be ignored.
+
+    Second, facts and pedagogy are separated. The earlier version demanded a
+    citation on every sentence, which is safe and produces a citation-studded
+    paraphrase of the textbook -- exactly what the student already failed to
+    understand. A retrieved fact needs [S1]. An analogy does not, because an
+    analogy is not a factual claim; it only has to avoid contradicting the
+    sources. That distinction is what lets the model actually explain.
     """
     language = LANGUAGE_NAMES.get(request["language"], "English")
-    level = f"Class {request['class_level']}" if request["class_level"] else "Class 6-8"
+    class_level = request["class_level"]
     subject = request["subject"].replace("_", " ") if request["subject"] else "Science and Social Science"
+
+    if class_level == "6":
+        pitch = ("Class 6 (about 11 years old). Short sentences. Everyday words only. "
+                 "Anchor every idea to something they can see or touch.")
+    elif class_level == "8":
+        pitch = ("Class 8 (about 13 years old). They can handle a mechanism and a "
+                 "technical term, as long as you define it the first time.")
+    else:
+        pitch = ("Class 6-8 (11-13 years old). Assume curiosity, not prior "
+                 "vocabulary. Define any technical term you use.")
 
     sources_block = context.strip() or "(no relevant textbook passages were found)"
 
-    return f"""You are StoryTutor, a warm and patient tutor for Indian school students
-studying the NCERT {subject} curriculum for classes 6 to 8.
+    return f"""You are StoryTutor, a warm and genuinely good tutor for Indian school
+students studying the NCERT {subject} curriculum.
 
-Always reply in {language}, pitched at {level}: short sentences, plain words,
-concrete examples.
+Reply in {language}. Pitch: {pitch}
 
 Below are textbook passages retrieved for whatever the student just said. They
 may or may not be relevant -- judge that yourself.
 
-Decide how to respond:
+HOW TO RESPOND
 
-- If the student is greeting you, thanking you, or making small talk: reply
-  naturally and briefly, then invite them to ask something from their
-  textbook. Ignore the passages entirely.
+If they are greeting you, thanking you, or making small talk:
+  Reply naturally and briefly, then invite a question from their textbook.
+  Ignore the passages entirely.
 
-- If they ask what you are or what you can do: explain that you answer
-  questions from the NCERT class 6-8 Science and Social Science books in
-  English, Hindi and Marathi, always showing which page an answer came from.
+If they ask what you are or what you can do:
+  Explain that you answer from the NCERT class 6-8 Science and Social Science
+  books in English, Hindi and Marathi, always showing which page it came from.
 
-- If they ask a curriculum question AND the passages cover it: answer from the
-  passages only. End every factual sentence with its source marker, like [S1]
-  or [S2]. Use only source numbers that appear below -- never invent one.
+If they ask a curriculum question the passages DO cover -- explain it properly:
+  1. Answer the actual question directly, in one or two sentences.
+  2. Explain the mechanism -- the why underneath the what.
+  3. Give an intuition or analogy that makes it click.
+  4. Give one concrete everyday example an Indian student would recognise
+     (chai, monsoon, bicycle, cricket, cooking, the local market).
+  5. Optionally end with one short question that checks they followed.
 
-- If they ask a curriculum question the passages do NOT cover: say so plainly,
-  name what seems to be missing, and suggest they pick the right class and
-  subject. Do not answer from your own knowledge.
+If they ask a curriculum question the passages do NOT cover:
+  Say so plainly, name what seems to be missing, and suggest they pick the
+  right class and subject. Do not answer from your own knowledge.
 
-Never invent a citation. Never invent people, dialogue or fictional scenarios.
-Keep answers to 2-4 short paragraphs.
+FACTS VERSUS EXPLANATION -- this distinction matters
 
-Textbook passages:
+  A FACT about the curriculum must come from the passages and must end with
+  its source marker: "Heat moves from the hotter object to the cooler one [S1]."
+
+  Your ANALOGIES, intuitions, everyday examples and framing are your own work.
+  They need no citation. They must not contradict the passages, but you should
+  absolutely use them -- an explanation without one is just the textbook again,
+  and the student already did not understand the textbook.
+
+  So this is right:
+    "Heat always flows from hotter to cooler, never the other way [S1].
+     Think of it like water finding its level -- it only runs downhill.
+     That is why the steel spoon in your chai gets hot but the plastic
+     handle stays cool enough to hold."
+  The first sentence is cited because it is a curriculum fact. The analogy and
+  the chai example are yours, and they are what makes it teach.
+
+NEVER
+  - invent a citation, or use a source number not listed below
+  - state a curriculum fact the passages do not support
+  - answer an out-of-syllabus question from general knowledge
+  - invent characters, dialogue or fictional scenes
+
+Keep it to 3-5 short paragraphs. Write like a good teacher talking to one
+student, not like a textbook.
+
+TEXTBOOK PASSAGES
 ---
 {sources_block}
 ---
@@ -379,3 +425,172 @@ def _call_provider(provider, system: str, user: str,
     with urllib.request.urlopen(req, timeout=getattr(provider, "timeout", 180)) as r:
         payload = json.loads(r.read().decode("utf-8"))
     return payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+
+# --------------------------------------------------------------- streaming
+
+def stream_answer(payload: Dict[str, Any], rag_engine, llm_client=None, top_k: int = 5):
+    """Yield the answer in pieces as the model produces it.
+
+    Total generation time is unchanged; what changes is that the student sees
+    words in under a second instead of watching a spinner for eight. Perceived
+    latency is the product here.
+
+    Yields dicts: {"type": "meta"|"token"|"done"|"error", ...}
+    """
+    import time
+
+    t0 = time.time()
+    request = normalize_chat_request(payload)
+    history = _recent_history(payload)
+
+    allowed, reason, guard_meta = guardrails.check_input(request["question"])
+    if not allowed:
+        yield {"type": "meta", "sources": [], "intent": "blocked"}
+        yield {"type": "token", "text": guardrails.refusal_message(reason, request["language"])}
+        yield {"type": "done", "model_provider": "guardrail", "blocked_reason": reason}
+        return
+    if guard_meta["pii_types"]:
+        request["question"] = guardrails.redact_pii(request["question"])
+
+    filters = {
+        "class_level": request["class_level"],
+        "subject": request["subject"],
+        "language": request["language"],
+    }
+    results = rag_engine.retrieve(query=request["question"], filters=filters, top_k=top_k)
+    strong = [d for d in results if _source_score(d) >= MIN_EVIDENCE_SCORE]
+    retrieval_ms = int((time.time() - t0) * 1000)
+
+    # Sources go out first so citations can render while tokens still arrive.
+    yield {
+        "type": "meta",
+        "sources": _citations(strong),
+        "retrieval_method": results[0].get("retrieval_method") if results else None,
+        "retrieval_ms": retrieval_ms,
+    }
+
+    if llm_client is None:
+        text = (_passages_fallback(request, strong) if strong
+                else NO_EVIDENCE.get(request["language"], NO_EVIDENCE["english"]))
+        yield {"type": "token", "text": text}
+        yield {"type": "done", "model_provider": "passages_only" if strong else "none",
+               "retrieval_ms": retrieval_ms, "grounded": bool(strong)}
+        return
+
+    system = build_chat_prompt(request, _format_sources(strong))
+    pieces: List[str] = []
+    first_token_ms = None
+    provider_name = "unknown"
+
+    client = getattr(llm_client, "client", llm_client)
+    for provider in getattr(client, "clients", [client]):
+        pieces.clear()
+        try:
+            for piece in _stream_provider(provider, system, request["question"], history):
+                if first_token_ms is None:
+                    first_token_ms = int((time.time() - t0) * 1000)
+                pieces.append(piece)
+                yield {"type": "token", "text": piece}
+        except Exception as exc:  # noqa: BLE001
+            print(f"stream: {getattr(provider, 'provider_name', '?')} failed - {exc}")
+            continue
+        if pieces:
+            provider_name = getattr(provider, "provider_name", "unknown")
+            llm_client.last_provider = provider_name
+            break
+
+    if not pieces:
+        text = (_passages_fallback(request, strong) if strong
+                else NO_EVIDENCE.get(request["language"], NO_EVIDENCE["english"]))
+        yield {"type": "token", "text": text}
+        yield {"type": "done", "model_provider": "passages_only" if strong else "none",
+               "retrieval_ms": retrieval_ms, "grounded": bool(strong)}
+        return
+
+    raw = "".join(pieces)
+    try:
+        answer = parse_json_response_safe(raw)
+    except Exception:
+        answer = raw
+    checked = guardrails.check_output(answer, strong)
+
+    yield {
+        "type": "done",
+        "model_provider": provider_name,
+        "grounded": bool(strong),
+        "answer": checked["answer"],
+        "groundedness": checked["groundedness"],
+        "citations_used": checked["citations_used"],
+        "invented_citations": checked["invented_citations"],
+        "retrieval_ms": retrieval_ms,
+        "first_token_ms": first_token_ms,
+        "total_ms": int((time.time() - t0) * 1000),
+    }
+
+
+def parse_json_response_safe(raw: str) -> str:
+    """Pull the answer out of a JSON reply, or take the prose if it isn't JSON."""
+    from story_mvp.model_clients import parse_json_response
+
+    try:
+        return parse_json_response(raw).get("answer", "").strip() or raw.strip()
+    except Exception:
+        return raw.strip()
+
+
+def _stream_provider(provider, system: str, user: str, history=None):
+    """Token stream from one provider. Ollama and OpenAI-compatible differ only
+    in envelope shape."""
+    import json
+    import urllib.request
+
+    name = getattr(provider, "provider_name", "")
+    messages = [{"role": "system", "content": system}]
+    messages.extend(history or [])
+    messages.append({"role": "user", "content": user})
+
+    if name == "ollama":
+        body = {"model": provider.model, "stream": True, "format": "json",
+                "messages": messages, "options": {"temperature": 0.4}}
+        req = urllib.request.Request(
+            f"{provider.host}/api/chat", data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=getattr(provider, "timeout", 180)) as r:
+            for line in r:
+                line = line.decode("utf-8").strip()
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                piece = chunk.get("message", {}).get("content", "")
+                if piece:
+                    yield piece
+                if chunk.get("done"):
+                    return
+        return
+
+    base = getattr(provider, "base_url", None) or getattr(provider, "endpoint", "")
+    url = f"{base}/chat/completions" if base and not base.endswith("/chat/completions") else base
+    body = {"model": provider.model, "messages": messages, "temperature": 0.4,
+            "max_tokens": 1200, "stream": True}
+    headers = {"Content-Type": "application/json"}
+    key = getattr(provider, "api_key", None)
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
+                                 headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=getattr(provider, "timeout", 180)) as r:
+        for line in r:
+            line = line.decode("utf-8").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                return
+            try:
+                delta = json.loads(data)["choices"][0].get("delta", {})
+            except Exception:
+                continue
+            piece = delta.get("content", "")
+            if piece:
+                yield piece
