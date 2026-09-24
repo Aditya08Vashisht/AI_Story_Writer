@@ -89,7 +89,9 @@ def build_script_prompt(question: str, answer: str, sources: List[Dict], request
     )
     return f"""You are writing a 30-second explainer video for an Indian school student.
 
-Everything you write must be in {language}.
+The text VALUES you write must be in {language}. The JSON KEYS must stay
+exactly as shown below, in English -- "title", "scenes", "heading", "body",
+"narration", "diagram_nodes", "diagram_edges". Do not translate the keys.
 
 Here is a grounded answer, already checked against NCERT textbook pages:
 ---
@@ -178,8 +180,14 @@ def script_from_answer(
     llm_client,
     request: Dict[str, str],
     max_attempts: int = 3,
+    debug_dir: Optional[Any] = None,
 ) -> VideoScript:
-    """Build a validated script, retrying with the problems fed back."""
+    """Build a validated script, retrying with the problems fed back.
+
+    Every rejected reply is written to `debug_dir` when given. The Hindi and
+    Marathi failures were diagnosed by inference because the raw reply was
+    never visible; it should not take guessing a second time.
+    """
     sources = rag_result.get("sources") or []
     if not sources or not rag_result.get("grounded"):
         raise ScriptError(
@@ -225,6 +233,7 @@ def script_from_answer(
                 data = json.loads(raw[raw.index("{"):raw.rindex("}") + 1])
             except Exception as exc:  # noqa: BLE001
                 last_problems = [f"reply was not valid JSON: {exc}"]
+                _dump_reply(debug_dir, request, attempt + 1, raw, last_problems)
                 continue
 
         script = _assemble(data, rag_result, request, sources, provider_name)
@@ -233,12 +242,102 @@ def script_from_answer(
             return script
         last_problems = problems
         print(f"video script attempt {attempt+1} rejected: {problems}")
+        _dump_reply(debug_dir, request, attempt + 1, raw, problems)
 
     raise ScriptError(f"could not produce a valid script in {max_attempts} attempts: {last_problems}")
 
 
+def _dump_reply(debug_dir, request: Dict[str, str], attempt: int, raw: str, problems: List[str]) -> None:
+    if not debug_dir:
+        return
+    from pathlib import Path
+
+    try:
+        d = Path(debug_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        slug = "".join(c if c.isalnum() else "_" for c in request.get("question", "q"))[:40]
+        (d / f"{request.get('language','x')}_{slug}_attempt{attempt}.txt").write_text(
+            "PROBLEMS:\n" + "\n".join(problems) + "\n\nRAW REPLY:\n" + (raw or ""),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"could not save debug reply - {exc}")
+
+
+_SCENE_FIELDS = ("heading", "body", "narration")
+
+
+def recover_structure(data: Any) -> Dict[str, Any]:
+    """Map a reply onto the expected shape when the model got the keys wrong.
+
+    Observed with qwen2.5:7b on Hindi and Marathi: the reply parsed as valid
+    JSON yet mapped to nothing -- every scene empty, zero diagram nodes, the
+    same on all three attempts even with the problems fed back. A model
+    writing a poor script produces a different mistake each time; producing
+    nothing identically means the content was there under keys the parser
+    did not recognise, most likely translated along with the values.
+
+    Recovery is positional and only fills keys that are MISSING. It never
+    invents content -- every string still comes from the model, and the
+    result still has to pass validate() before anything is rendered.
+    """
+    if isinstance(data, list):
+        data = {"scenes": data} if data and all(isinstance(x, dict) for x in data) else {}
+    if not isinstance(data, dict):
+        return {}
+
+    out = dict(data)
+    order = list(SCENE_BUDGET)
+
+    scenes = data.get("scenes")
+    if scenes is None:
+        for v in data.values():
+            if isinstance(v, dict) and len(v) >= len(order) and all(isinstance(x, dict) for x in v.values()):
+                scenes = v
+                break
+            if isinstance(v, list) and len(v) >= len(order) and all(isinstance(x, dict) for x in v):
+                scenes = v
+                break
+
+    if isinstance(scenes, list):
+        scenes = {k: scenes[i] for i, k in enumerate(order) if i < len(scenes)}
+    elif isinstance(scenes, dict) and not all(k in scenes for k in order):
+        vals = list(scenes.values())
+        scenes = {k: vals[i] for i, k in enumerate(order) if i < len(vals)}
+    elif not isinstance(scenes, dict):
+        scenes = {}
+
+    fixed = {}
+    for k, s in scenes.items():
+        if not isinstance(s, dict):
+            continue
+        if not any(f in s for f in _SCENE_FIELDS):
+            vals = [str(v) for v in s.values()]
+            s = {f: vals[i] for i, f in enumerate(_SCENE_FIELDS) if i < len(vals)}
+        fixed[k] = s
+    out["scenes"] = fixed
+
+    if not out.get("diagram_nodes"):
+        for v in data.values():
+            if isinstance(v, list) and v and all(isinstance(x, str) for x in v):
+                out["diagram_nodes"] = v
+                break
+    if not out.get("diagram_edges"):
+        for v in data.values():
+            if isinstance(v, list) and v and all(isinstance(x, list) and len(x) == 2 for x in v):
+                out["diagram_edges"] = v
+                break
+    if not out.get("title"):
+        for v in data.values():
+            if isinstance(v, str) and v.strip():
+                out["title"] = v
+                break
+    return out
+
+
 def _assemble(data: Dict, rag_result: Dict, request: Dict[str, str],
               sources: List[Dict], provider: str) -> VideoScript:
+    data = recover_structure(data)
     raw_scenes = data.get("scenes") or {}
     scenes: List[Scene] = []
     for key, (seconds, _limit) in SCENE_BUDGET.items():
@@ -253,7 +352,19 @@ def _assemble(data: Dict, rag_result: Dict, request: Dict[str, str],
 
     nodes = [str(n).strip() for n in (data.get("diagram_nodes") or []) if str(n).strip()]
     edges = [[str(a).strip(), str(b).strip()] for a, b in
-             ((e + ["", ""])[:2] for e in (data.get("diagram_edges") or [])) if str(a).strip()]
+             ((list(e) + ["", ""])[:2] for e in (data.get("diagram_edges") or [])
+              if isinstance(e, (list, tuple))) if str(a).strip()]
+
+    # A model often names nodes in its edges without listing them -- observed:
+    # nodes ["Oceans cover 71%", ...] with edges ["Oceans", "Continents"]. The
+    # endpoints are the model's own labels, so adding them to the node list is
+    # faithful rather than invented. Capped at 6 so the card still fits.
+    known = {n.lower() for n in nodes}
+    for a, b in edges:
+        for end in (a, b):
+            if end and end.lower() not in known and len(nodes) < 6:
+                nodes.append(end)
+                known.add(end.lower())
 
     return VideoScript(
         question=rag_result.get("question", ""),

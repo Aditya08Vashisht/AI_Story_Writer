@@ -87,7 +87,7 @@ def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = Fal
               "about something the textbooks do not cover.")
         return {"question": question, "status": "refused_ungrounded"}
 
-    script = script_from_answer(rag, llm, request)
+    script = script_from_answer(rag, llm, request, debug_dir=outdir / "debug")
     print(f"  script: {script.total_words} words across {len(script.scenes)} scenes")
 
     # Render cards. English-only fallback if this Pillow cannot shape Devanagari.
