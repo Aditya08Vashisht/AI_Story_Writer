@@ -1,0 +1,18 @@
+[
+  {
+    "question": "Why does a metal spoon get hot when you put it in hot water?",
+    "language": "english", "class_level": "6", "subject": "science"
+  },
+  {
+    "question": "पौधे अपना भोजन कैसे बनाते हैं?",
+    "language": "hindi", "class_level": "7", "subject": "science"
+  },
+  {
+    "question": "भारतातील ब्रिटीश वसाहतवादाचा देशावर कसा परिणाम झाला?",
+    "language": "marathi", "class_level": "8", "subject": "social_science"
+  },
+  {
+    "question": "What are oceans and continents, and how are they distributed?",
+    "language": "english", "class_level": "6", "subject": "social_science"
+  }
+]

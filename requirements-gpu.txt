@@ -5,3 +5,12 @@
 # build automatically, and pinning here risks fighting that resolution.
 
 vllm>=0.6.0
+
+# Video pipeline. imageio-ffmpeg bundles a static ffmpeg binary, so no
+# `module load ffmpeg` is needed on the cluster.
+imageio-ffmpeg>=0.5.1
+soundfile>=0.12.1
+
+# Narration is optional -- the pipeline produces a subtitled silent video
+# without it. parler-tts installs from git:
+#   pip install git+https://github.com/huggingface/parler-tts.git
