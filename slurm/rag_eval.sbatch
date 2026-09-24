@@ -22,6 +22,7 @@ export TOKENIZERS_PARALLELISM=false
 # Ollama must already be serving, and on THIS node -- a server bound to
 # 127.0.0.1 on the login node is not reachable from here.
 export PATH=/scratch/$USER/ollama/bin:$PATH
+export LD_LIBRARY_PATH=/scratch/$USER/ollama/lib/ollama:${LD_LIBRARY_PATH:-}
 export OLLAMA_MODELS=/scratch/$USER/ollama/models
 export OLLAMA_HOST=${OLLAMA_HOST:-http://127.0.0.1:11434}
 export OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:8b}
