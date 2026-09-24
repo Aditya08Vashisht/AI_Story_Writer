@@ -27,6 +27,39 @@ from story_mvp.video.script import ScriptError, script_from_answer  # noqa: E402
 from story_mvp.video.tts import IndicTTS, audio_duration  # noqa: E402
 
 
+def preflight_llm() -> bool:
+    """Confirm a generation provider answers before anything expensive loads."""
+    import urllib.request
+
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+    if not host.startswith("http"):
+        host = "http://" + host
+    model = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+
+    try:
+        with urllib.request.urlopen(f"{host}/api/tags", timeout=5) as r:
+            tags = json.loads(r.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"\nNo model server at {host} ({exc}).\n")
+        print("Start Ollama first:\n")
+        print("  export PATH=/scratch/$USER/ollama/bin:$PATH")
+        print("  export LD_LIBRARY_PATH=/scratch/$USER/ollama/lib/ollama:$LD_LIBRARY_PATH")
+        print("  export OLLAMA_MODELS=/scratch/$USER/ollama/models")
+        print("  export OLLAMA_HOST=127.0.0.1:11434")
+        print("  nohup ollama serve > /scratch/$USER/ollama/serve.log 2>&1 &")
+        print("  sleep 6 && curl -s http://127.0.0.1:11434/api/tags\n")
+        return False
+
+    names = [m.get("name", "") for m in tags.get("models", [])]
+    if not any(n == model or n.startswith(model.split(":")[0]) for n in names):
+        print(f"\n{host} is up, but '{model}' is not pulled. Available: {names or 'none'}")
+        print(f"  ollama pull {model}\n")
+        return False
+
+    print(f"model server OK at {host} · {model}")
+    return True
+
+
 def slugify(text: str, limit: int = 48) -> str:
     keep = "".join(c if c.isalnum() or c in " -_" else "" for c in text)
     return "-".join(keep.lower().split())[:limit] or "video"
@@ -110,6 +143,13 @@ def main() -> int:
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+
+    # Check the model BEFORE loading the embedding model and reranker. Those
+    # take a minute on GPU, and discovering "connection refused" afterwards
+    # wastes all of it -- and the failure then looks like a video problem
+    # rather than a server that was never started.
+    if not preflight_llm():
+        return 2
 
     from story_mvp.llm_client import StoryLLM
     from story_mvp.rag_engine import RetrievalService

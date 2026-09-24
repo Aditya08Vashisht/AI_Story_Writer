@@ -36,13 +36,42 @@ export LD_LIBRARY_PATH="$OLLAMA_ROOT/lib/ollama:${LD_LIBRARY_PATH:-}"
 
 mkdir -p "$OLLAMA_ROOT" "$OLLAMA_MODELS"
 
+start_server() {
+    if curl -sf "${HOST_URL}/api/tags" >/dev/null 2>&1; then
+        echo "ollama already serving on $HOST_URL"
+        return 0
+    fi
+    if [ ! -x "$OLLAMA_ROOT/bin/ollama" ]; then
+        echo "ollama is not installed yet. Run this script without 'serve' first." >&2
+        return 1
+    fi
+    echo "starting ollama serve (log: $OLLAMA_ROOT/serve.log)"
+    nohup "$OLLAMA_ROOT/bin/ollama" serve > "$OLLAMA_ROOT/serve.log" 2>&1 &
+    for _ in $(seq 1 30); do
+        sleep 1
+        curl -sf "${HOST_URL}/api/tags" >/dev/null 2>&1 && { echo "ollama is up at $HOST_URL"; return 0; }
+    done
+    echo "ollama did not come up. Last lines of $OLLAMA_ROOT/serve.log:" >&2
+    tail -20 "$OLLAMA_ROOT/serve.log" >&2 || true
+    return 1
+}
+
+# Handle `serve` BEFORE anything that can fail. Previously the release-tag
+# lookup ran first, and under `set -euo pipefail` a failing curl killed the
+# script with no output at all -- so `setup_ollama.sh serve` silently did
+# nothing and every later request got "connection refused".
+if [ "${1:-}" = "serve" ]; then
+    start_server
+    exit $?
+fi
+
 # ollama.com/download/... redirects, and the redirect target has 404'd in
 # practice. The GitHub release asset is the stable address, so try it first
 # and keep the others as fallbacks.
 # The /releases/latest/download/ alias 404s for this asset name, so ask the
 # API for the actual newest tag first. v0.5.7 is a known-good floor, but it
 # predates Qwen3 -- see the model fallback below.
-LATEST_TAG=$(curl -sf https://api.github.com/repos/ollama/ollama/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | cut -d'"' -f4)
+LATEST_TAG=$(curl -sf https://api.github.com/repos/ollama/ollama/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | cut -d'"' -f4 || true)
 
 URLS=()
 [ -n "$LATEST_TAG" ] && URLS+=("https://github.com/ollama/ollama/releases/download/${LATEST_TAG}/ollama-linux-amd64.tgz")
@@ -71,27 +100,6 @@ download() {
     done
     return 1
 }
-
-start_server() {
-    if curl -sf "${HOST_URL}/api/tags" >/dev/null 2>&1; then
-        echo "ollama already serving on $HOST_URL"
-        return
-    fi
-    echo "starting ollama serve (log: $OLLAMA_ROOT/serve.log)"
-    nohup ollama serve > "$OLLAMA_ROOT/serve.log" 2>&1 &
-    for _ in $(seq 1 30); do
-        sleep 1
-        curl -sf "${HOST_URL}/api/tags" >/dev/null 2>&1 && { echo "ollama is up at $HOST_URL"; return; }
-    done
-    echo "ollama did not come up. Last lines of $OLLAMA_ROOT/serve.log:" >&2
-    tail -20 "$OLLAMA_ROOT/serve.log" >&2 || true
-    exit 1
-}
-
-if [ "${1:-}" = "serve" ]; then
-    start_server
-    exit 0
-fi
 
 if [ ! -x "$OLLAMA_ROOT/bin/ollama" ]; then
     if ! download; then
