@@ -19,7 +19,16 @@ OLLAMA_ROOT=${OLLAMA_ROOT:-/scratch/$USER/ollama}
 MODEL=${OLLAMA_MODEL:-qwen3:8b}
 
 export OLLAMA_MODELS="$OLLAMA_ROOT/models"
-export OLLAMA_HOST=${OLLAMA_HOST:-127.0.0.1:11434}
+
+# The CLI wants a bare host:port; the Python client wants a full URL. Accept
+# either and derive both, because exporting the URL form (which the app needs)
+# and then having this script prepend http:// again produced
+# "http://http://127.0.0.1:11434" and a health check that could never pass.
+OLLAMA_HOST=${OLLAMA_HOST:-127.0.0.1:11434}
+OLLAMA_HOST=${OLLAMA_HOST#http://}
+OLLAMA_HOST=${OLLAMA_HOST#https://}
+export OLLAMA_HOST
+HOST_URL="http://${OLLAMA_HOST}"
 export PATH="$OLLAMA_ROOT/bin:$PATH"
 # The tarball ships bundled shared libraries next to the binary. Without this
 # the binary downloads fine and then fails at exec with a linker error.
@@ -30,9 +39,16 @@ mkdir -p "$OLLAMA_ROOT" "$OLLAMA_MODELS"
 # ollama.com/download/... redirects, and the redirect target has 404'd in
 # practice. The GitHub release asset is the stable address, so try it first
 # and keep the others as fallbacks.
-URLS=(
-    "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tgz"
+# The /releases/latest/download/ alias 404s for this asset name, so ask the
+# API for the actual newest tag first. v0.5.7 is a known-good floor, but it
+# predates Qwen3 -- see the model fallback below.
+LATEST_TAG=$(curl -sf https://api.github.com/repos/ollama/ollama/releases/latest 2>/dev/null     | sed -n 's/.*"tag_name": *"\([^"]*\)".*//p' | head -1)
+
+URLS=()
+[ -n "$LATEST_TAG" ] && URLS+=("https://github.com/ollama/ollama/releases/download/${LATEST_TAG}/ollama-linux-amd64.tgz")
+URLS+=(
     "https://ollama.com/download/ollama-linux-amd64.tgz"
+    "https://github.com/ollama/ollama/releases/download/v0.11.4/ollama-linux-amd64.tgz"
     "https://github.com/ollama/ollama/releases/download/v0.5.7/ollama-linux-amd64.tgz"
 )
 
@@ -57,15 +73,15 @@ download() {
 }
 
 start_server() {
-    if curl -sf "http://${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
-        echo "ollama already serving on $OLLAMA_HOST"
+    if curl -sf "${HOST_URL}/api/tags" >/dev/null 2>&1; then
+        echo "ollama already serving on $HOST_URL"
         return
     fi
     echo "starting ollama serve (log: $OLLAMA_ROOT/serve.log)"
     nohup ollama serve > "$OLLAMA_ROOT/serve.log" 2>&1 &
     for _ in $(seq 1 30); do
         sleep 1
-        curl -sf "http://${OLLAMA_HOST}/api/tags" >/dev/null 2>&1 && { echo "ollama is up"; return; }
+        curl -sf "${HOST_URL}/api/tags" >/dev/null 2>&1 && { echo "ollama is up at $HOST_URL"; return; }
     done
     echo "ollama did not come up. Last lines of $OLLAMA_ROOT/serve.log:" >&2
     tail -20 "$OLLAMA_ROOT/serve.log" >&2 || true
@@ -103,7 +119,14 @@ fi
 start_server
 
 echo "pulling $MODEL (GGUF, a few GB) ..."
-ollama pull "$MODEL"
+if ! ollama pull "$MODEL"; then
+    # An older client can predate a model family. qwen2.5:7b is a capable
+    # multilingual fallback that every recent version can fetch.
+    FALLBACK=${OLLAMA_FALLBACK_MODEL:-qwen2.5:7b}
+    echo "could not pull $MODEL; trying $FALLBACK" >&2
+    ollama pull "$FALLBACK"
+    MODEL="$FALLBACK"
+fi
 ollama list
 
 cat <<EOF
@@ -114,7 +137,7 @@ the provider chain is built at import, so exporting afterwards does nothing:
   export PATH=$OLLAMA_ROOT/bin:\$PATH
   export LD_LIBRARY_PATH=$OLLAMA_ROOT/lib/ollama:\$LD_LIBRARY_PATH
   export OLLAMA_MODELS=$OLLAMA_MODELS
-  export OLLAMA_HOST=http://$OLLAMA_HOST
+  export OLLAMA_HOST=$HOST_URL
   export OLLAMA_MODEL=$MODEL
   export STORYTUTOR_ENABLE_RERANK=1
   python -m story_mvp.app
