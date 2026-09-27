@@ -137,18 +137,29 @@ def build_script_prompt(question: str, answer: str, sources: List[Dict], request
         request.get("language", "english"), "English")
     n = len(sources)
     budgets = "\n".join(
-        f"  {k}: at most {w} words of narration" for k, (_, w) in SCENE_BUDGET.items()
+        f"  {k}: {SCENE_MIN_WORDS[k]} to {w} words of narration"
+        for k, (_, w) in SCENE_BUDGET.items()
     )
     visual_rules = _visual_rules(language) if want_visuals else ""
     keys = '"title", "scenes", "heading", "body", "narration", ' + ('"visual", ' if want_visuals else "") \
         + '"diagram_nodes", "diagram_edges"'
     scenes_json = _scene_template(want_visuals)
+    # The question is the topic anchor. It was once left out of this prompt
+    # entirely (the user turn is a fixed instruction, see SCRIPT_INSTRUCTION),
+    # so the model saw only the answer and titled videos after whatever else
+    # the answer happened to mention -- a title about one thing over scenes
+    # about another.
     return f"""You are writing a 30-second explainer video for an Indian school student.
+
+THE TOPIC OF THIS VIDEO -- the student's question:
+    {question}
+The title and every scene must be about exactly this question. Do not drift to
+other topics that the answer or its sources also mention.
 
 The text VALUES you write must be in {language}. The JSON KEYS must stay
 exactly as shown below, in English -- {keys}. Do not translate the keys.
 
-Here is a grounded answer, already checked against NCERT textbook pages:
+Here is a grounded answer to that question, already checked against NCERT textbook pages:
 ---
 {answer}
 ---
@@ -156,6 +167,7 @@ Here is a grounded answer, already checked against NCERT textbook pages:
 There are {n} source(s), numbered [S1] to [S{n}]. Never use a higher number.
 
 Write a four-scene script. The word budgets are hard limits, not suggestions --
+each narration is a full spoken sentence, never a single word or a label --
 narration is spoken aloud at about 2.3 words per second, so exceeding them
 makes the video run long and the scenes desync:
 
@@ -232,6 +244,68 @@ def validate(script: VideoScript, n_sources: int, require_visuals: bool = False)
     return problems
 
 
+# Question words that say nothing about the topic. Deliberately short: this
+# only decides which words of the question are worth looking for.
+_STOP = set("""
+why what how when where which who whom whose does do did is are was were be been
+the a an and or of in on at to for from with by as it its this that these those
+you your they them their we our get gets got put make makes made can could will
+would should there here into onto about over under between explain describe tell
+कैसे क्या क्यों कब कहाँ कौन है हैं था थी थे का की के में से को और यह वह इस उस अपना अपनी
+अपने होता होती होते करते करता करती बनाते बताइए समझाइए पर भी एक
+कसा कसे कशी काय का कोण कुठे आहे आहेत होता होती झाला झाली झाले वर मध्ये चा ची चे
+च्या ला ने नी आणि हा ही हे तो ती ते या एक सांगा
+""".split())
+
+# bge-m3 similarity above which a title is "about" the question even when it
+# shares no word with it (a paraphrase, or a synonym in Hindi). Unrelated
+# topics in this corpus score well below it.
+TOPIC_SIM = 0.5
+
+
+def _keywords(text: str) -> List[str]:
+    return [w for w in (m.group(0).lower() for m in _WORD.finditer(text or ""))
+            if len(w) >= 3 and w not in _STOP]
+
+
+def _shares_keyword(a: List[str], b: List[str]) -> bool:
+    # Four-character prefixes: "spoon"/"spoons", "पौधे"/"पौधों", "ocean"/"oceans".
+    pa = {w[:4] for w in a}
+    return any(w[:4] in pa for w in b)
+
+
+def topic_problems(script: VideoScript, embed=None) -> List[str]:
+    """Is the video about the question it was made for?
+
+    The failure this catches was seen on Sol: a title about one thing over
+    scenes about another. Word overlap decides the easy cases; the embedding
+    model decides the rest, so a paraphrased title is not rejected for
+    sharing no exact word with the question.
+    """
+    q_words = _keywords(script.question)
+    if not q_words:
+        return []
+
+    narration = " ".join(s.narration for s in script.scenes)
+    checks = [("title", script.title), ("narration", narration)]
+    problems: List[str] = []
+    for label, text in checks:
+        if _shares_keyword(q_words, _keywords(text)):
+            continue
+        if embed is not None:
+            try:
+                q, t = embed([script.question, text])
+                if float((q * t).sum()) >= TOPIC_SIM:
+                    continue
+            except Exception:  # noqa: BLE001 - a failed check must not block
+                continue
+        problems.append(
+            f"the {label} is not about the question \"{script.question}\" -- "
+            "rewrite it so it answers exactly that question"
+        )
+    return problems
+
+
 def _source_line(sources: List[Dict], language: str) -> str:
     if not sources:
         return ""
@@ -255,6 +329,7 @@ def script_from_answer(
     max_attempts: int = 3,
     debug_dir: Optional[Any] = None,
     want_visuals: bool = False,
+    embed=None,
 ) -> VideoScript:
     """Build a validated script, retrying with the problems fed back.
 
@@ -323,6 +398,7 @@ def script_from_answer(
 
         script = _assemble(data, rag_result, request, sources, provider_name)
         problems = validate(script, len(sources), require_visuals=want_visuals)
+        problems += topic_problems(script, embed)
         if not problems:
             return script
         if all(_is_soft(p) for p in problems) and (

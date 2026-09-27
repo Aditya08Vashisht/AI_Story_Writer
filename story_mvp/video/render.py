@@ -117,15 +117,26 @@ def render_video(
             shutil.move(str(silent), str(out_path))
             return out_path
 
-        # Concatenate per-scene narration, then mux.
+        # One audio segment per scene, each exactly as long as its scene, so
+        # every line starts with its own card. Joining the raw clips instead
+        # let the voice run ahead by the pause after each line, and a scene
+        # with no clip shifted every line after it.
+        segs = []
+        for i, dur in enumerate(durations):
+            seg = work / f"seg_{i:02d}.wav"
+            p = audio_paths[i] if audio_paths and i < len(audio_paths) else None
+            if p and Path(p).exists():
+                _run([ffmpeg, "-y", "-i", str(p), "-af", "adelay=150:all=1,apad",
+                      "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", str(seg)])
+            else:
+                _run([ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+                      "-t", f"{dur:.3f}", str(seg)])
+            segs.append(seg)
         alist = work / "audio.txt"
-        alist.write_text(
-            "\n".join(f"file '{Path(p).as_posix()}'" for p in audio_paths if p and Path(p).exists()),
-            encoding="utf-8",
-        )
+        alist.write_text("\n".join(f"file '{s.as_posix()}'" for s in segs), encoding="utf-8")
         merged = work / "narration.wav"
         _run([ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(alist),
-              "-c", "copy", str(merged)])
+              "-c:a", "pcm_s16le", str(merged)])
         _run([ffmpeg, "-y", "-i", str(silent), "-i", str(merged),
               "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-shortest", str(out_path)])
         return out_path

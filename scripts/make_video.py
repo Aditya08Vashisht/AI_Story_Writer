@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from story_mvp.rag_chat import answer_question  # noqa: E402
 from story_mvp.video import cards, render as rnd  # noqa: E402
 from story_mvp.video.script import ScriptError, script_from_answer  # noqa: E402
-from story_mvp.video.tts import IndicTTS, audio_duration  # noqa: E402
+from story_mvp.video.tts import audio_duration, get_tts  # noqa: E402
 
 
 def preflight_llm() -> bool:
@@ -62,9 +62,26 @@ def preflight_llm() -> bool:
     return True
 
 
+def make_embedder(engine):
+    """bge-m3 from the retrieval engine, for the script's topic check."""
+    model = getattr(engine, "model", None)
+    if model is None or not hasattr(model, "encode"):
+        return None
+    return lambda texts: model.encode(list(texts), normalize_embeddings=True)
+
+
 def slugify(text: str, limit: int = 48) -> str:
-    keep = "".join(c if c.isalnum() or c in " -_" else "" for c in text)
-    return "-".join(keep.lower().split())[:limit] or "video"
+    """Readable and unique. isalnum() drops Devanagari vowel signs, so two
+    Hindi questions could collapse to one name and overwrite each other's
+    video -- the title of one over the scenes of another. The hash makes
+    every question its own file."""
+    import hashlib
+    import unicodedata
+
+    keep = "".join(c if c.isalnum() or c in " -_" or unicodedata.category(c).startswith("M")
+                   else "" for c in text)
+    stem = "-".join(keep.lower().split())[:limit] or "video"
+    return f"{stem}-{hashlib.sha1(text.strip().encode('utf-8')).hexdigest()[:6]}"
 
 
 def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = False,
@@ -91,7 +108,7 @@ def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = Fal
     t_script = time.time()
     want_visuals = illustrator is not None
     script = script_from_answer(rag, llm, request, debug_dir=outdir / "debug",
-                                want_visuals=want_visuals)
+                                want_visuals=want_visuals, embed=make_embedder(engine))
     print(f"  script: {script.total_words} words across {len(script.scenes)} scenes "
           f"({time.time() - t_script:.0f}s)")
 
@@ -132,7 +149,8 @@ def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = Fal
             path = tts.speak(scene.narration, script.language, work / f"{slugify(question)}_{i}.wav")
         audio_paths.append(path)
         dur = audio_duration(path) if path else None
-        durations.append((dur + 0.6) if dur else scene.seconds)
+        # Narration sets the pace: a scene lasts as long as its line, plus a breath.
+        durations.append(max(2.0, dur + 0.6) if dur else scene.seconds)
 
     out = outdir / f"{slugify(question)}.mp4"
     video = rnd.render_video(script, images, audio_paths, durations, out, burn_subtitles=True)
@@ -141,6 +159,7 @@ def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = Fal
         "retrieval_method": rag.get("retrieval_method"),
         "seconds_to_build": round(time.time() - t0, 1),
         "narrated": any(p for p in audio_paths),
+        "voice": (getattr(tts, "engine", None) or getattr(tts, "name", None)) if tts else None,
         "illustrations": illustration_log,
         "image_model": getattr(illustrator, "model_id", None),
     })
@@ -188,7 +207,11 @@ def main() -> int:
 
     engine = RetrievalService(dataset_dir=args.dataset_dir)
     llm = StoryLLM()
-    tts = None if args.no_audio else IndicTTS()
+    tts = None if args.no_audio else get_tts()
+    if tts is not None and not tts.available:
+        print(f"\nNOTE: narration disabled -- {tts.failure}")
+        print("      Start the voice server first:  bash scripts/sol.sh up\n")
+        tts = None
 
     illustrator = None
     if not args.no_images:

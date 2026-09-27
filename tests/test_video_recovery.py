@@ -96,8 +96,8 @@ def test_script_call_sends_an_instruction_not_the_question(monkeypatch):
 
     def capture(provider, system, user, history=None):
         seen["user"] = user
-        return ('{"title":"t","scenes":{'
-                + ",".join(f'"{k}":{{"heading":"h","body":"b","narration":"एक दो तीन"}}'
+        return ('{"title":"पौधों का भोजन","scenes":{'
+                + ",".join(f'"{k}":{{"heading":"h","body":"b","narration":"पौधे भोजन बनाते हैं"}}'
                            for k in ("title", "idea", "diagram", "check"))
                 + '},"diagram_nodes":["क","ख"],"diagram_edges":[["क","ख"]]}')
 

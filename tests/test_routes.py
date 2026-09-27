@@ -72,7 +72,7 @@ def test_video_listing_reads_sidecars(client, tmp_path, monkeypatch):
     monkeypatch.setattr(appmod, "VIDEO_DIR", str(tmp_path))
     items = client.get("/api/videos").get_json()
     assert items[0]["question"] == "why hot"
-    assert items[0]["url"] == "/videos/file/heat.mp4"
+    assert items[0]["url"].startswith("/videos/file/heat.mp4?v=")
     assert client.get("/videos/file/heat.mp4").status_code == 200
 
 

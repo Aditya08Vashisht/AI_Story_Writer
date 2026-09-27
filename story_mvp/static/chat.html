@@ -179,6 +179,8 @@ textarea:focus{outline:none;border-color:var(--accent)}
 .srcbtn{margin-top:9px;background:none;border:1px solid var(--line);color:var(--dim);
   border-radius:7px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600}
 .srcbtn:hover{color:var(--txt);border-color:var(--accent)}
+.srcbtn.on{color:var(--accent);border-color:var(--accent)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .caret{display:inline-block;width:7px;height:15px;background:var(--accent);
   margin-left:2px;vertical-align:text-bottom;animation:blink 1s step-end infinite}
 @keyframes blink{50%{opacity:0}}
@@ -231,7 +233,88 @@ function Sources({list}){
   ));
 }
 
-function Answer({d}){
+/* ---- read aloud ----
+   Sentence by sentence through /api/tts (Indic Parler-TTS on the server), so
+   speech starts after the first sentence instead of the whole answer; the
+   next sentence is fetched while the current one plays. If the voice server
+   is down, the browser's own voice reads it instead. */
+const SPEECH_LANG = {english:'en-IN', hindi:'hi-IN', marathi:'mr-IN'};
+const PLAYER = {token:0, audio:null};
+
+function speechPieces(text){
+  const clean = String(text||'')
+    .replace(/\[S\d+\]/g,'').replace(/https?:\/\/\S+/g,'')
+    .replace(/(\*\*|__|`|^#+\s*|^\s*[-*•]\s+)/gm,'').replace(/\s+/g,' ').trim();
+  const out = [];
+  for(const s of clean.split(/(?<=[.!?।॥])\s+/)){
+    if(!s.trim()) continue;
+    if(out.length && s.length < 25) out[out.length-1] += ' ' + s; else out.push(s.trim());
+  }
+  return out;
+}
+
+function stopSpeaking(){
+  PLAYER.token++;
+  if(PLAYER.audio){ PLAYER.audio.pause(); PLAYER.audio = null; }
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+async function speak(text, lang, onState){
+  stopSpeaking();
+  const token = PLAYER.token;
+  const pieces = speechPieces(text);
+  if(!pieces.length) return;
+  const fetchClip = s => fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:s,language:lang})})
+    .then(r=>{ if(!r.ok) throw new Error('tts '+r.status); return r.blob(); });
+
+  onState('loading');
+  try{
+    let next = fetchClip(pieces[0]);
+    for(let i=0;i<pieces.length;i++){
+      const blob = await next;
+      if(token!==PLAYER.token) return;
+      if(i+1<pieces.length) next = fetchClip(pieces[i+1]);
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url); PLAYER.audio = a;
+      onState('playing');
+      await new Promise((res,rej)=>{ a.onended=res; a.onerror=rej; a.play().catch(rej); });
+      URL.revokeObjectURL(url);
+      if(token!==PLAYER.token) return;
+    }
+  }catch(e){
+    if(token!==PLAYER.token) return;
+    // Voice server unavailable: the browser's voice is better than silence.
+    if(window.speechSynthesis){
+      const u = new SpeechSynthesisUtterance(pieces.join(' '));
+      u.lang = SPEECH_LANG[lang]||'en-IN';
+      u.onend = ()=>{ if(token===PLAYER.token) onState('idle'); };
+      onState('playing');
+      window.speechSynthesis.speak(u);
+      return;
+    }
+  }
+  if(token===PLAYER.token) onState('idle');
+}
+
+function SpeakButton({text, lang, auto}){
+  const [state,setState] = useState('idle');
+  const mine = useRef(-1);
+  const start = ()=>{ speak(text, lang, s=>setState(s)); mine.current = PLAYER.token; };
+  useEffect(()=>{ if(auto && text) start(); },[auto]);
+  // Another answer started speaking: this button is no longer the active one.
+  useEffect(()=>{ const t=setInterval(()=>{ if(state!=='idle' && mine.current!==PLAYER.token) setState('idle'); },400);
+    return ()=>clearInterval(t); },[state]);
+  const busy = state!=='idle';
+  return (
+    <button className={'srcbtn '+(busy?'on':'')} title="Read this answer aloud"
+      onClick={()=>{ if(busy){ stopSpeaking(); setState('idle'); } else start(); }}>
+      {state==='loading'?'⏳ Preparing voice…':state==='playing'?'⏹ Stop':'🔊 Listen'}
+    </button>
+  );
+}
+
+function Answer({d, lang, autoSpeak}){
   const [showSrc,setShowSrc] = useState(false);
   const srcs = d.sources||[];
   const provider = d.model_provider||'unknown';
@@ -263,14 +346,17 @@ function Answer({d}){
         </div>
       )}
 
-      {srcs.length>0 && (
-        <>
-          <button className="srcbtn" onClick={()=>setShowSrc(!showSrc)}>
-            {showSrc?'Hide':'Show'} {srcs.length} source{srcs.length===1?'':'s'}
-          </button>
-          {showSrc && <div style={{marginTop:10}}><Sources list={srcs}/></div>}
-        </>
+      {!d.streaming && (
+        <div className="actions">
+          {d.answer && <SpeakButton text={d.answer} lang={lang||d.language||'english'} auto={autoSpeak}/>}
+          {srcs.length>0 && (
+            <button className="srcbtn" onClick={()=>setShowSrc(!showSrc)}>
+              {showSrc?'Hide':'Show'} {srcs.length} source{srcs.length===1?'':'s'}
+            </button>
+          )}
+        </div>
       )}
+      {showSrc && srcs.length>0 && <div style={{marginTop:10}}><Sources list={srcs}/></div>}
     </div>
   );
 }
@@ -284,7 +370,9 @@ function App(){
   const [cls,setCls] = useState('6');
   const [sub,setSub] = useState('science');
   const [theme,setTheme] = useState('dark');
+  const [autoRead,setAutoRead] = useState(()=>{ try{ return localStorage.getItem('st_autoread')==='1'; }catch(e){ return false; } });
   const end = useRef(null);
+  useEffect(()=>{ try{ localStorage.setItem('st_autoread', autoRead?'1':'0'); }catch(e){} },[autoRead]);
 
   useEffect(()=>{fetch('/api/health').then(r=>r.json()).then(setHealth).catch(()=>setHealth({status:'offline'}))},[]);
   useEffect(()=>{end.current?.scrollIntoView({behavior:'smooth'})},[msgs,busy]);
@@ -301,7 +389,8 @@ function App(){
 
     setMsgs(m=>[...m,{role:'user',text:question,lang:L}]); setQ(''); setBusy(true);
     const idx = msgs.length + 1;
-    setMsgs(m=>[...m,{role:'assistant',data:{answer:'',sources:[],streaming:true}}]);
+    stopSpeaking();
+    setMsgs(m=>[...m,{role:'assistant',lang:L,autoSpeak:autoRead,data:{answer:'',sources:[],streaming:true}}]);
 
     try{
       const r = await fetch('/api/chat/stream',{
@@ -343,7 +432,7 @@ function App(){
           body:JSON.stringify({question,language:L,class_level:C,subject:S,history})
         });
         const d = await r2.json();
-        setMsgs(m=>{const c=[...m]; c[idx]={role:'assistant',data:{...d,streaming:false}}; return c;});
+        setMsgs(m=>{const c=[...m]; c[idx]={...c[idx],role:'assistant',data:{...d,streaming:false}}; return c;});
       }catch(e2){
         setMsgs(m=>{const c=[...m]; c[idx]={role:'assistant',error:String(e2)}; return c;});
       }
@@ -365,6 +454,9 @@ function App(){
         <div className="spacer"></div>
         {health && <Badge kind={health.status==='online'?'ok':'bad'}>{health.status==='online'?'online':'offline'}</Badge>}
         {health?.model_provider && <Badge kind={['deterministic','none'].includes(health.model_provider)?'warn':'ok'}>{health.model_provider}</Badge>}
+        <button className={'pill '+(autoRead?'ok':'')} style={{cursor:'pointer',background:'none'}}
+          title="Read every new answer aloud" onClick={()=>{ if(autoRead) stopSpeaking(); setAutoRead(!autoRead); }}>
+          {autoRead?'🔊 auto-read on':'🔈 auto-read off'}</button>
         <a className="pill" href="/videos" style={{textDecoration:'none',color:'var(--accent)'}}>videos</a>
         <button className="iconbtn" onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?'☀':'☾'}</button>
       </div>
@@ -397,7 +489,7 @@ function App(){
                       ? <div className={'bubble '+(isDeva(m.text)?'deva':'')}>{m.text}</div>
                       : m.error
                         ? <div className="bubble" style={{color:'var(--danger)'}}>Request failed: {m.error}</div>
-                        : <Answer d={m.data}/>}
+                        : <Answer d={m.data} lang={m.lang} autoSpeak={m.autoSpeak}/>}
                   </div>
                 </div>
               ))}

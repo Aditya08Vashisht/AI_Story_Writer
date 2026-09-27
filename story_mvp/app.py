@@ -142,7 +142,10 @@ def list_videos():
                     meta = {}
             items.append({
                 "file": name,
-                "url": "/videos/file/" + name,
+                # Versioned by modification time: a re-rendered video keeps its
+                # name, and without this the browser replays its cached copy
+                # under the new title and audit data.
+                "url": f"/videos/file/{name}?v={int(os.path.getmtime(os.path.join(VIDEO_DIR, name)))}",
                 "question": meta.get("question"),
                 "title": meta.get("title"),
                 "language": meta.get("language"),
@@ -165,6 +168,35 @@ def video_file(name):
     if name != os.path.basename(name) or not name.endswith((".mp4", ".json")):
         abort(404)
     return send_from_directory(VIDEO_DIR, name)
+
+
+@app.route("/api/tts", methods=["POST"])
+def tts():
+    """Read text aloud via the voice server (scripts/tts_server.py).
+
+    503 when the server is not running; the chat page then falls back to the
+    browser's own speech voice, so the button always does something.
+    """
+    import urllib.error
+    import urllib.request
+
+    payload = request.get_json(silent=True) or {}
+    text = str(payload.get("text", "")).strip()[:4000]
+    language = payload.get("language", "english")
+    if language not in {"english", "hindi", "marathi"}:
+        language = "english"
+    if not text:
+        return jsonify({"error": "empty text"}), 400
+
+    url = os.environ.get("STORYTUTOR_TTS_URL", "http://127.0.0.1:5060").rstrip("/") + "/tts"
+    body = json.dumps({"text": text, "language": language}).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return Response(r.read(), mimetype="audio/wav",
+                            headers={"Cache-Control": "private, max-age=86400"})
+    except (urllib.error.URLError, OSError) as exc:
+        return jsonify({"error": f"voice server unavailable: {exc}"}), 503
 
 
 @app.route("/api/options")
@@ -267,4 +299,9 @@ def run_story_studio(host: str = "127.0.0.1", port: int = 5050, debug: bool = Fa
 
 
 if __name__ == "__main__":
-    run_story_studio(debug=True)
+    # Debug stays off unless asked for: Flask's debugger runs arbitrary code,
+    # and on Sol this page is reachable through the VS Code tunnel.
+    run_story_studio(
+        port=int(os.environ.get("STORYTUTOR_PORT", 5050)),
+        debug=os.environ.get("STORYTUTOR_DEBUG", "").lower() in {"1", "true", "yes"},
+    )

@@ -19,6 +19,8 @@ accelerate>=1.0.0
 sentencepiece>=0.2.0
 protobuf>=4.25.0
 
-# Narration is optional -- the pipeline produces a subtitled silent video
-# without it. parler-tts installs from git:
-#   pip install git+https://github.com/huggingface/parler-tts.git
+# Narration: NOT installed here. parler-tts pins an old transformers that
+# would break diffusers and bge-m3 in this environment, so the voice runs in
+# its own environment as a small server:
+#   bash scripts/sol.sh setup-tts     (once)
+#   bash scripts/sol.sh up            (every session)
