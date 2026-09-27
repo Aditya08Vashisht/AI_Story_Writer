@@ -90,6 +90,10 @@ class VideoScript:
     source_line: str
     sources: List[Dict[str, Any]] = field(default_factory=list)
     model_provider: str = "unknown"
+    # How the script was checked against the grounded answer (see
+    # grounding_problems). Lands in the sidecar, so every video says whether
+    # its narration and diagram were verified, and by what.
+    grounding: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def total_words(self) -> int:
@@ -306,6 +310,136 @@ def topic_problems(script: VideoScript, embed=None) -> List[str]:
     return problems
 
 
+# ---------------------------------------------------------------- grounding
+#
+# The script is written FROM the grounded answer, but a model rewriting 150
+# words into 70 can still add a fact, swap a cause, or draw an arrow the
+# answer never states. A video is more persuasive than text, so each factual
+# line and every diagram arrow is checked against the answer before render.
+#
+# The model is the reviewer -- it can tell a faithful paraphrase from a new
+# claim, which word overlap cannot. Embeddings are the second opinion: a line
+# that plainly restates an answer sentence is not rejected on a 7B judge's
+# whim, and with no model at all they are the whole check.
+
+FACT_SCENES = ("idea", "diagram")      # title is a label; check is a question
+SUPPORT_SIM = 0.55                     # a claim this close to an answer sentence is supported
+STRONG_SIM = 0.75                      # ...this close overrides the judge
+_SENT_SPLIT = re.compile(r"(?<=[.!?।])\s+")
+
+
+def _claims(script: VideoScript) -> List[Dict[str, str]]:
+    out = []
+    for s in script.scenes:
+        if s.key in FACT_SCENES and s.narration.strip():
+            out.append({"id": f"C{len(out) + 1}", "kind": "scene", "scene": s.key, "text": s.narration})
+    for a, b in script.diagram_edges:
+        out.append({"id": f"D{len(out) + 1}", "kind": "arrow", "scene": "diagram",
+                    "text": f"{a} -> {b}", "edge": f"{a} -> {b}"})
+    return out
+
+
+def _judge_prompt(evidence: str, claims: List[Dict[str, str]]) -> str:
+    listed = "\n".join(f"[{c['id']}] {c['text']}" for c in claims)
+    return f"""You check a short school video script against its source.
+
+EVIDENCE -- an answer already verified against NCERT textbook pages:
+---
+{evidence}
+---
+
+CLAIMS from the video script. Lines marked D are diagram arrows: "A -> B"
+means the video shows A leading to, causing or feeding into B.
+{listed}
+
+For each claim decide: does the EVIDENCE support it? A faithful paraphrase,
+a simplification, or a translation of the evidence is supported. An everyday
+example is fine if it states no new fact. A claim is UNSUPPORTED if it adds
+a fact, number, name or cause the evidence does not state, reverses a
+relationship, or contradicts the evidence.
+
+Return only valid JSON:
+{{"unsupported": [{{"id": "C1", "why": "one short reason"}}]}}
+Use an empty list when every claim is supported."""
+
+
+def _answer_sentences(evidence: str) -> List[str]:
+    return [s.strip() for s in _SENT_SPLIT.split(evidence or "") if len(s.strip()) > 8]
+
+
+def _best_support(embed, claim: str, sentences: List[str]) -> Optional[float]:
+    if embed is None or not sentences:
+        return None
+    try:
+        vecs = embed([claim] + sentences)
+        return float(max((vecs[0] * v).sum() for v in vecs[1:]))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def grounding_problems(script: VideoScript, evidence: str, providers=None, embed=None):
+    """(problems, report). Problems are fed back for a rewrite; the report
+    goes into the video's audit file."""
+    claims = _claims(script)
+    sentences = _answer_sentences(evidence)
+    report: Dict[str, Any] = {"checked": len(claims), "method": None, "unsupported": []}
+    if not claims or not evidence.strip():
+        report["method"] = "skipped"
+        return [], report
+
+    flagged: Dict[str, str] = {}
+    judged = False
+    if providers:
+        from story_mvp.model_clients import parse_json_response
+        from story_mvp.rag_chat import _call_provider
+
+        for provider in providers:
+            try:
+                raw = _call_provider(provider, _judge_prompt(evidence, claims),
+                                     "Check the claims now. Reply with the JSON only.", None)
+                data = parse_json_response(raw)
+                for item in (data.get("unsupported") or []) if isinstance(data, dict) else []:
+                    if isinstance(item, dict) and item.get("id"):
+                        flagged[str(item["id"]).strip("[] ")] = str(item.get("why", "")).strip()
+                    elif isinstance(item, str):
+                        flagged[item.strip("[] ")] = ""
+                judged = True
+                break
+            except Exception as exc:  # noqa: BLE001 - fall back to embeddings
+                print(f"grounding judge: {getattr(provider, 'provider_name', '?')} failed - {exc}")
+
+    problems: List[str] = []
+    for c in claims:
+        sim = _best_support(embed, c["text"], sentences)
+        if judged:
+            unsupported = c["id"] in flagged and not (sim is not None and sim >= STRONG_SIM)
+            why = flagged.get(c["id"], "")
+        elif sim is not None:
+            unsupported, why = sim < SUPPORT_SIM, f"closest answer sentence scores {sim:.2f}"
+        elif c["kind"] == "arrow":
+            # No model, no embeddings: both ends of an arrow must at least be
+            # things the answer talks about.
+            ends = c["edge"].split(" -> ")
+            unsupported = not all(_shares_keyword(_keywords(evidence), _keywords(e)) for e in ends)
+            why = "the answer never mentions one end of this arrow"
+        else:
+            continue
+        if not unsupported:
+            continue
+        report["unsupported"].append({"id": c["id"], "text": c["text"], "why": why,
+                                      "similarity": None if sim is None else round(sim, 3)})
+        if c["kind"] == "arrow":
+            problems.append(f"diagram arrow '{c['edge']}' is not supported by the answer"
+                            f"{' (' + why + ')' if why else ''} -- use only relationships the answer states")
+        else:
+            problems.append(f"scene '{c['scene']}' narration says something the answer does not support"
+                            f"{' (' + why + ')' if why else ''} -- use only facts from the answer")
+
+    report["method"] = "model_judge+embedding" if judged else ("embedding" if embed else "keyword")
+    report["verified"] = not problems
+    return problems, report
+
+
 def _source_line(sources: List[Dict], language: str) -> str:
     if not sources:
         return ""
@@ -399,6 +533,15 @@ def script_from_answer(
         script = _assemble(data, rag_result, request, sources, provider_name)
         problems = validate(script, len(sources), require_visuals=want_visuals)
         problems += topic_problems(script, embed)
+        # Fact-check last: it costs a model call, so only a script that is
+        # otherwise usable is checked. Soft problems (short, bad visual) do
+        # not skip it -- the fallback script must be verified too.
+        if all(_is_soft(p) for p in problems):
+            g_problems, script.grounding = grounding_problems(
+                script, _evidence(rag_result), providers, embed)
+            problems += g_problems
+            print(f"video script attempt {attempt + 1}: {script.grounding['checked']} claims checked "
+                  f"({script.grounding['method']}), {len(g_problems)} unsupported")
         if not problems:
             return script
         if all(_is_soft(p) for p in problems) and (
@@ -413,6 +556,15 @@ def script_from_answer(
               f"remaining issues: {last_problems}")
         return fallback
     raise ScriptError(f"could not produce a valid script in {max_attempts} attempts: {last_problems}")
+
+
+def _evidence(rag_result: Dict[str, Any]) -> str:
+    """What the script may state: the grounded answer, plus any source
+    excerpts that came with it."""
+    parts = [str(rag_result.get("answer") or "")]
+    parts += [str(s.get("excerpt")) for s in (rag_result.get("sources") or [])
+              if isinstance(s, dict) and s.get("excerpt")]
+    return "\n".join(p for p in parts if p.strip())
 
 
 def _is_soft(problem: str) -> bool:

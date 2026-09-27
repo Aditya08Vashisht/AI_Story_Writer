@@ -148,4 +148,5 @@ def make_video(concept: Dict, engine, llm, tts, outdir: Path, illustrator=None,
     say("Done", 1.0)
     return {"question": question, "status": "ok", "video": str(video), "file": Path(video).name,
             "title": script.title, "seconds": round(total, 1), "narrated": narrated > 0,
-            "illustrations": len(pictures), "sources": len(rag["sources"])}
+            "illustrations": len(pictures), "sources": len(rag["sources"]),
+            "verified": script.grounding.get("verified")}

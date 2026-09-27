@@ -95,7 +95,7 @@ def test_script_call_sends_an_instruction_not_the_question(monkeypatch):
     seen = {}
 
     def capture(provider, system, user, history=None):
-        seen["user"] = user
+        seen.setdefault("user", user)          # the script call comes first
         return ('{"title":"पौधों का भोजन","scenes":{'
                 + ",".join(f'"{k}":{{"heading":"h","body":"b","narration":"पौधे भोजन बनाते हैं"}}'
                            for k in ("title", "idea", "diagram", "check"))
@@ -131,3 +131,77 @@ def test_one_word_overrun_is_tolerated_but_a_long_one_is_not():
     assert structural(validate(script, 1)) == []
     script.scenes[3].narration = " ".join(["w"] * 40)
     assert structural(validate(script, 1))
+
+
+# ---------------- script vs grounded answer ----------------
+
+def _heat_script(idea="Heat moves from the hot water into the cooler spoon.",
+                 edges=(("Hot water", "Metal spoon"),)):
+    from story_mvp.video.script import Scene, VideoScript
+
+    return VideoScript(
+        question="Why does a spoon get hot?", language="english", class_level="6", subject="science",
+        title="Why Spoons Get Hot",
+        scenes=[Scene("title", "t", "", "Why does a spoon get hot?", 4.0),
+                Scene("idea", "i", "", idea, 9.0),
+                Scene("diagram", "d", "", "Heat travels from the water to the spoon.", 11.0),
+                Scene("check", "c", "", "Would a wooden spoon get hot as fast?", 6.0)],
+        diagram_nodes=[n for e in edges for n in e], diagram_edges=[list(e) for e in edges],
+        source_line="NCERT", sources=[{"marker": "S1"}])
+
+
+ANSWER = "Heat moves from the hotter water to the cooler spoon [S1]. Metals conduct heat well."
+
+
+class Judge:
+    provider_name = "ollama"
+
+
+def test_the_judge_sees_every_factual_line_and_arrow(monkeypatch):
+    import story_mvp.rag_chat as rc
+    from story_mvp.video.script import grounding_problems
+
+    seen = {}
+    monkeypatch.setattr(rc, "_call_provider",
+                        lambda p, s, u, h=None: seen.setdefault("prompt", s) and '{"unsupported": []}')
+    problems, report = grounding_problems(_heat_script(), ANSWER, [Judge()])
+    assert problems == [] and report["verified"] is True
+    assert "[C1] Heat moves" in seen["prompt"] and "[D3] Hot water -> Metal spoon" in seen["prompt"]
+    assert "Would a wooden spoon" not in seen["prompt"], "the check question is not a claim"
+
+
+def test_an_invented_fact_and_arrow_are_sent_back(monkeypatch):
+    import story_mvp.rag_chat as rc
+    from story_mvp.video.script import grounding_problems
+
+    monkeypatch.setattr(rc, "_call_provider", lambda p, s, u, h=None: (
+        '{"unsupported": [{"id": "C1", "why": "the answer gives no temperature"},'
+        ' {"id": "D3", "why": "the answer never says the spoon heats the water"}]}'))
+    script = _heat_script(idea="The spoon reaches exactly 80 degrees in one minute.",
+                          edges=(("Metal spoon", "Hot water"),))
+    problems, report = grounding_problems(script, ANSWER, [Judge()])
+    assert len(problems) == 2 and report["verified"] is False
+    assert any("scene 'idea'" in p and "no temperature" in p for p in problems)
+    assert any("diagram arrow 'Metal spoon -> Hot water'" in p for p in problems)
+
+
+def test_a_line_that_plainly_restates_the_answer_overrides_a_strict_judge(monkeypatch):
+    import numpy as np
+
+    import story_mvp.rag_chat as rc
+    from story_mvp.video.script import grounding_problems
+
+    monkeypatch.setattr(rc, "_call_provider", lambda p, s, u, h=None: '{"unsupported": [{"id": "C1"}]}')
+    same = lambda texts: np.array([[1.0, 0.0]] * len(texts))   # noqa: E731  everything matches
+    problems, _ = grounding_problems(_heat_script(), ANSWER, [Judge()], embed=same)
+    assert problems == []
+
+
+def test_without_a_model_embeddings_do_the_check():
+    import numpy as np
+
+    from story_mvp.video.script import grounding_problems
+
+    far = lambda texts: np.array([[1.0, 0.0]] + [[0.0, 1.0]] * (len(texts) - 1))  # noqa: E731
+    problems, report = grounding_problems(_heat_script(), ANSWER, providers=None, embed=far)
+    assert report["method"] == "embedding" and problems

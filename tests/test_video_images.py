@@ -157,7 +157,8 @@ def test_bad_visuals_never_cost_the_video(monkeypatch):
     calls = []
 
     def reply(provider, system, user, history=None):
-        calls.append(1)
+        if "Write the video script" in user:   # not the fact-check call
+            calls.append(1)
         scenes = {k: {"heading": "h", "body": "b", "narration": "एक दो तीन"}
                   for k in ("title", "idea", "diagram", "check")}
         scenes["title"]["visual"] = "गरम चाय में चम्मच"            # wrong language

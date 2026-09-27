@@ -202,7 +202,11 @@ case "$cmd" in
     ;;
   status)    status ;;
   ask)       python scripts/ask.py "$@" ;;
-  videos)    python scripts/make_video.py --batch "${1:-concepts.json}" 2>&1 | tee "$LOGS/videos.log" ;;
+  videos)
+    # Videos are narrated: make sure the model and the voice are up first.
+    start_ollama || exit 1
+    start_tts
+    python scripts/make_video.py --batch "${1:-concepts.json}" 2>&1 | tee "$LOGS/videos.log" ;;
   test)      run_tests ;;
   link)      share_link ;;
   setup-tts) setup_tts ;;

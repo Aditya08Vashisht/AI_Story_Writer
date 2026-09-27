@@ -151,6 +151,7 @@ def list_videos():
                 "language": meta.get("language"),
                 "total_words": meta.get("total_words"),
                 "narrated": meta.get("narrated"),
+                "verified": (meta.get("grounding") or {}).get("verified"),
                 "illustrations": sum(1 for i in (meta.get("illustrations") or []) if i.get("generated")),
                 "model_provider": meta.get("model_provider"),
                 "sources": meta.get("sources", []),

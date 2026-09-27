@@ -329,7 +329,12 @@ function SpeakButton({text, lang, auto}){
 function VideoButton({d, ctx}){
   const [job,setJob] = useState(null);
   const [err,setErr] = useState('');
+  const [t0,setT0] = useState(0);
+  const [now,setNow] = useState(Date.now());
   const timer = useRef(null);
+  // A video can take ~5 minutes; a ticking clock shows it is working, not stuck.
+  useEffect(()=>{ if(!job || job.state==='done' || job.state==='error') return;
+    const t=setInterval(()=>setNow(Date.now()),1000); return ()=>clearInterval(t); },[job]);
   useEffect(()=>()=>clearInterval(timer.current),[]);
 
   const poll = id => {
@@ -352,7 +357,7 @@ function VideoButton({d, ctx}){
           retrieval_method:d.retrieval_method})});
       const j = await r.json();
       if(!r.ok){ setErr(j.error||('failed ('+r.status+')')); return; }
-      setJob(j); poll(j.id);
+      setT0(Date.now()); setJob(j); poll(j.id);
     }catch(e){ setErr(String(e)); }
   };
 
@@ -372,16 +377,18 @@ function VideoButton({d, ctx}){
       <video src={job.url} controls autoPlay playsInline></video>
       <div className="vid-meta">
         {job.result?.title} · {job.result?.seconds}s · {job.result?.narrated?'narrated':'subtitles only'}
-        {' · '}{job.result?.illustrations||0} pictures · <a href="/videos">all videos</a>
+        {' · '}{job.result?.illustrations||0} pictures{job.result?.verified?' · ✓ fact-checked':''} · <a href="/videos">all videos</a>
         {job.note && <div className="vid-err">{job.note}</div>}
       </div>
     </div>);
 
   const pct = Math.round((job.progress||0)*100);
+  const secs = Math.max(0, Math.floor((now - t0)/1000));
+  const clock = Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0');
   return (
     <div className="vid-prog">
       <div className="vid-bar"><span style={{width:pct+'%'}}></span></div>
-      <span>🎬 {job.state==='queued'?'Waiting for the video maker…':job.step} · {pct}%</span>
+      <span>🎬 {job.state==='queued'?'Waiting for the video maker…':job.step} · {pct}% · {clock} (usually 2–5 min)</span>
     </div>);
 }
 

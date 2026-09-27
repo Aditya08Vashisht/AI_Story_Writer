@@ -91,16 +91,20 @@ def main() -> int:
     if not preflight_llm():
         return 2
 
+    tts = None if args.no_audio else get_tts()
+    if tts is not None and not tts.available:
+        # Narration is part of the deliverable: fail here, before any model
+        # loads, rather than quietly render a batch of silent videos.
+        print(f"\nNo voice: {tts.failure}")
+        print("  Start it with:      bash scripts/sol.sh up")
+        print("  or make silent videos on purpose:  --no-audio\n")
+        return 3
+
     from story_mvp.llm_client import StoryLLM
     from story_mvp.rag_engine import RetrievalService
 
     engine = RetrievalService(dataset_dir=args.dataset_dir)
     llm = StoryLLM()
-    tts = None if args.no_audio else get_tts()
-    if tts is not None and not tts.available:
-        print(f"\nNOTE: narration disabled -- {tts.failure}")
-        print("      Start the voice server first:  bash scripts/sol.sh up\n")
-        tts = None
 
     illustrator = None
     if not args.no_images:
