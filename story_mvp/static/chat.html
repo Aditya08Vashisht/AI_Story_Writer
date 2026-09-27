@@ -331,6 +331,7 @@ function Answer({d, lang, autoSpeak}){
         <Badge kind={live?'ok':'warn'}>{live?provider:(provider==='passages_only'?'passages only (no LLM)':provider)}</Badge>
         {method!=='—' && <Badge kind={method.includes('rerank')?'ok':''}>{method}</Badge>}
         <Badge>{srcs.length} source{srcs.length===1?'':'s'}</Badge>
+        {d.rewritten_query && <Badge kind="ok">searched as: {d.rewritten_query}</Badge>}
       </div>
 
       <div className={'bubble '+(isDeva(d.answer)?'deva':'')}>

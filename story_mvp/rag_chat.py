@@ -210,7 +210,111 @@ is exactly what this system exists to avoid.
 
 Keep it to two or three sentences.
 
-Return only valid JSON: {{"answer": "your reply here"}}"""
+Return only valid JSON, saying which of the three it is:
+{{"kind": "greeting" | "about" | "not_found", "answer": "your reply here"}}"""
+
+
+def build_rewrite_prompt(request: Dict[str, str]) -> str:
+    """Turn a message the search missed into what the textbook would say."""
+    language = LANGUAGE_NAMES.get(request["language"], "English")
+    script = " in Devanagari script" if request["language"] in {"hindi", "marathi"} else ""
+    return f"""You help search NCERT class 6-8 Science and Social Science textbooks
+written in {language}.
+
+A student's message found nothing in the textbook search. Rewrite it as ONE
+short search query, written in {language}{script}, using the words the
+textbook itself would use for this topic.
+
+- Translate it if the student wrote in another language, or wrote {language}
+  in English letters (for example "photosynthesis kya hota hai").
+- Drop greetings and filler ("hi!", "can you explain").
+- If it refers to the earlier conversation ("explain it more simply", "the
+  same thing in Marathi"), name the topic it refers to.
+- If it is small talk with no topic, return an empty query.
+
+Return only valid JSON: {{"query": "..."}}"""
+
+
+def rewrite_query(llm_client, request: Dict[str, str],
+                  history: List[Dict[str, str]] = None) -> str:
+    """The model's search query for a message retrieval missed, or ''."""
+    client = getattr(llm_client, "client", llm_client)
+    for provider in getattr(client, "clients", [client]):
+        try:
+            raw = _call_provider(provider, build_rewrite_prompt(request), request["question"], history)
+        except Exception as exc:  # noqa: BLE001
+            print(f"rewrite: {getattr(provider, 'provider_name', '?')} failed - {exc}")
+            continue
+        return extract_answer(raw)[:300]
+    return ""
+
+
+def retrieve_with_rescue(rag_engine, llm_client, request: Dict[str, str],
+                         history: List[Dict[str, str]], top_k: int):
+    """Search; if nothing clears the evidence gate, let the model rephrase once.
+
+    The misses this rescues, all seen in the 53-question eval: an English
+    question searched against Hindi or Marathi pages, Hindi typed in English
+    letters, a greeting diluting the question, a follow-up like "explain it
+    more simply" that names no topic. The gate is unchanged -- a rescued
+    search still has to find strong evidence, and the reranker scores the
+    rewritten query against the pages, in their own language.
+    Returns (results, strong, retrieval_method, rewritten_query_or_None).
+    """
+    filters = {
+        "class_level": request["class_level"],
+        "subject": request["subject"],
+        "language": request["language"],
+    }
+    results = rag_engine.retrieve(query=request["question"], filters=filters, top_k=top_k)
+    strong = [d for d in results if _source_score(d) >= MIN_EVIDENCE_SCORE]
+    method = results[0].get("retrieval_method") if results else None
+    if strong or llm_client is None:
+        return results, strong, method, None
+
+    query = rewrite_query(llm_client, request, history)
+    if not query or query.strip().lower() == request["question"].strip().lower():
+        return results, strong, method, None
+    again = rag_engine.retrieve(query=query, filters=filters, top_k=top_k)
+    again_strong = [d for d in again if _source_score(d) >= MIN_EVIDENCE_SCORE]
+    if not again_strong:
+        return results, strong, method, None
+    method = (again[0].get("retrieval_method") or "hybrid") + "+rewrite"
+    return again, again_strong, method, query
+
+
+def no_source_reply(llm_client, request: Dict[str, str],
+                    history: List[Dict[str, str]] = None) -> Optional[str]:
+    """The model says what kind of message this was; code decides what is said.
+
+    Told not to answer facts without sources, the 7B model still answered
+    calculus, "why does ice float" and "how magnets work" -- inventing "page
+    123 of your Science textbook" on the way. So the model's job here is to
+    recognise a greeting or a question about the tutor, and to write that
+    reply. Anything else gets the fixed not-found message: with no evidence,
+    a factual answer is never shown, whatever the model wrote.
+    """
+    from story_mvp.model_clients import parse_json_response
+
+    not_found = NO_EVIDENCE.get(request["language"], NO_EVIDENCE["english"])
+    client = getattr(llm_client, "client", llm_client)
+    for provider in getattr(client, "clients", [client]):
+        try:
+            raw = _call_provider(provider, build_no_source_prompt(request), request["question"], history)
+        except Exception as exc:  # noqa: BLE001
+            print(f"chat: {getattr(provider, 'provider_name', '?')} failed - {exc}")
+            continue
+        llm_client.last_provider = getattr(provider, "provider_name", "unknown")
+        try:
+            data = parse_json_response(raw)
+        except Exception:  # noqa: BLE001
+            return not_found
+        kind = str(data.get("kind", "")).strip().lower() if isinstance(data, dict) else ""
+        answer = extract_answer(raw)
+        if kind in {"greeting", "about"} and answer and len(answer) < 400:
+            return answer
+        return not_found
+    return None
 
 
 def _source_score(doc: Dict[str, Any]) -> float:
@@ -354,22 +458,18 @@ def answer_question(
     # runs when no model is reachable, so the fallback still greets sensibly.
     semantic = getattr(rag_engine, "intent_classifier", None)
 
-    filters = {
-        "class_level": request["class_level"],
-        "subject": request["subject"],
-        "language": request["language"],
-    }
-    results = rag_engine.retrieve(query=request["question"], filters=filters, top_k=top_k)
-
-    strong = [doc for doc in results if _source_score(doc) >= MIN_EVIDENCE_SCORE]
-    retrieval_method = results[0].get("retrieval_method") if results else None
+    results, strong, retrieval_method, rewritten = retrieve_with_rescue(
+        rag_engine, llm_client, request, history, top_k)
 
     # With a model available, hand everything to it -- including greetings.
     if llm_client is not None:
         try:
-            prompt = (build_chat_prompt(request, _format_sources(strong)) if strong
-                      else build_no_source_prompt(request))
-            answer = _generate(llm_client, request, prompt, history, prebuilt=True)
+            if strong:
+                answer = _generate(llm_client, request,
+                                   build_chat_prompt(request, _format_sources(strong)),
+                                   history, prebuilt=True)
+            else:
+                answer = no_source_reply(llm_client, request, history)
             if answer:
                 checked = guardrails.check_output(answer, strong)
                 return {
@@ -383,6 +483,7 @@ def answer_question(
                     "low_groundedness": checked["low_groundedness"],
                     "citations_used": checked["citations_used"],
                     "invented_citations": checked["invented_citations"],
+                    "rewritten_query": rewritten,
                     **request,
                 }
         except Exception as exc:  # noqa: BLE001
@@ -555,22 +656,30 @@ def stream_answer(payload: Dict[str, Any], rag_engine, llm_client=None, top_k: i
     if guard_meta["pii_types"]:
         request["question"] = guardrails.redact_pii(request["question"])
 
-    filters = {
-        "class_level": request["class_level"],
-        "subject": request["subject"],
-        "language": request["language"],
-    }
-    results = rag_engine.retrieve(query=request["question"], filters=filters, top_k=top_k)
-    strong = [d for d in results if _source_score(d) >= MIN_EVIDENCE_SCORE]
+    results, strong, method, rewritten = retrieve_with_rescue(
+        rag_engine, llm_client, request, history, top_k)
     retrieval_ms = int((time.time() - t0) * 1000)
 
     # Sources go out first so citations can render while tokens still arrive.
     yield {
         "type": "meta",
         "sources": _citations(strong),
-        "retrieval_method": results[0].get("retrieval_method") if results else None,
+        "retrieval_method": method,
         "retrieval_ms": retrieval_ms,
+        "rewritten_query": rewritten,
     }
+
+    # No evidence: a short reply, and never a factual one -- see
+    # no_source_reply. Not streamed, because the model's reply may be
+    # replaced, and a student must not watch an answer appear and vanish.
+    if not strong and llm_client is not None:
+        text = no_source_reply(llm_client, request, history)
+        if text:
+            yield {"type": "token", "text": text}
+            yield {"type": "done", "model_provider": getattr(llm_client, "last_provider", "unknown"),
+                   "grounded": False, "answer": text, "retrieval_ms": retrieval_ms,
+                   "total_ms": int((time.time() - t0) * 1000)}
+            return
 
     if llm_client is None:
         text = (_passages_fallback(request, strong) if strong

@@ -299,3 +299,91 @@ def test_devanagari_passages_are_kept_inside_the_token_budget():
     assert formatted.count("[S") == 5, "every source keeps its marker"
     english = [{"text": "Heat flows from hot to cold. " * 20}]
     assert "…" not in _format_sources(english), "short English passages are not trimmed"
+
+
+class QueryRAG:
+    """Strong evidence only for the queries it knows -- the textbook's words."""
+
+    def __init__(self, known):
+        self.known, self.queries = known, []
+
+    def retrieve(self, query, filters=None, top_k=5):
+        self.queries.append(query)
+        return [chunk(score=0.9 if query in self.known else 0.01)]
+
+
+def test_a_missed_search_is_rephrased_by_the_model_and_rescued(monkeypatch):
+    """'photosynthesis kya hota hai?' found nothing against Devanagari pages."""
+    import story_mvp.rag_chat as rc
+
+    def reply(p, system, user, history=None):
+        if "search query" in system:
+            return '{"query": "प्रकाश संश्लेषण क्या है"}'
+        return '{"answer": "पौधे प्रकाश संश्लेषण से भोजन बनाते हैं [S1]।"}'
+
+    monkeypatch.setattr(rc, "_call_provider", reply)
+    rag = QueryRAG({"प्रकाश संश्लेषण क्या है"})
+    out = rc.answer_question({"question": "photosynthesis kya hota hai?", "language": "hindi"},
+                             rag, FakeLLM(FakeOllama("")))
+    assert rag.queries == ["photosynthesis kya hota hai?", "प्रकाश संश्लेषण क्या है"]
+    assert out["grounded"] is True and out["sources"]
+    assert out["rewritten_query"] == "प्रकाश संश्लेषण क्या है"
+    assert out["retrieval_method"].endswith("+rewrite")
+
+
+def test_a_found_search_is_not_rephrased(monkeypatch):
+    import story_mvp.rag_chat as rc
+
+    calls = []
+    monkeypatch.setattr(rc, "_call_provider",
+                        lambda p, s, u, h=None: calls.append(s) or '{"answer": "Heat flows [S1]."}')
+    rag = QueryRAG({"why does a spoon get hot?"})
+    rc.answer_question({"question": "why does a spoon get hot?"}, rag, FakeLLM(FakeOllama("")))
+    assert len(rag.queries) == 1 and not any("search query" in s for s in calls)
+
+
+def test_without_evidence_a_factual_answer_is_never_shown(monkeypatch):
+    """The model answered calculus and 'how magnets work' with no sources,
+    inventing a textbook page. Whatever it writes, the student sees not-found."""
+    import story_mvp.rag_chat as rc
+
+    def reply(p, system, user, history=None):
+        if "search query" in system:
+            return '{"query": ""}'
+        return '{"kind": "not_found", "answer": "Magnets attract iron, see page 123 of your book."}'
+
+    monkeypatch.setattr(rc, "_call_provider", reply)
+    out = rc.answer_question({"question": "hi! can you explain how magnets work?"},
+                             QueryRAG(set()), FakeLLM(FakeOllama("")))
+    assert out["answer"] == rc.NO_EVIDENCE["english"]
+    assert "page 123" not in out["answer"] and out["grounded"] is False
+
+
+def test_without_evidence_a_greeting_still_gets_the_models_own_reply(monkeypatch):
+    import story_mvp.rag_chat as rc
+
+    def reply(p, system, user, history=None):
+        if "search query" in system:
+            return '{"query": ""}'
+        return '{"kind": "greeting", "answer": "नमस्ते! अपनी पाठ्यपुस्तक से कुछ भी पूछिए।"}'
+
+    monkeypatch.setattr(rc, "_call_provider", reply)
+    out = rc.answer_question({"question": "नमस्ते", "language": "hindi"},
+                             QueryRAG(set()), FakeLLM(FakeOllama("")))
+    assert out["answer"].startswith("नमस्ते!")
+
+
+def test_the_stream_never_shows_an_unsourced_fact(monkeypatch):
+    import story_mvp.rag_chat as rc
+
+    def reply(p, system, user, history=None):
+        if "search query" in system:
+            return '{"query": ""}'
+        return '{"kind": "not_found", "answer": "Ice floats because it is less dense."}'
+
+    monkeypatch.setattr(rc, "_call_provider", reply)
+    events = list(rc.stream_answer({"question": "why does ice float?"}, QueryRAG(set()),
+                                   FakeLLM(FakeOllama(""))))
+    shown = "".join(e.get("text", "") for e in events if e["type"] == "token")
+    assert shown == rc.NO_EVIDENCE["english"]
+    assert events[-1]["type"] == "done" and events[-1]["grounded"] is False
