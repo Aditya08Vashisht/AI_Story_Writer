@@ -185,3 +185,79 @@ def test_voice_server_round_trip(tmp_path, monkeypatch):
         assert FakeVoice.calls == 1, "a repeated sentence must come from the cache"
     finally:
         srv.shutdown()
+
+
+# ---------------- video from the chat ----------------
+
+def test_chat_video_needs_a_sourced_answer(client, monkeypatch):
+    import story_mvp.app as appmod
+
+    monkeypatch.setattr(appmod, "AI_ENABLED", True)
+    r = client.post("/api/video", json={"question": "q", "answer": "a", "sources": []})
+    assert r.status_code == 400 and "no textbook sources" in r.get_json()["error"]
+
+
+def test_chat_video_job_runs_to_done_with_the_answer_on_screen(client, monkeypatch, tmp_path):
+    """The video must explain the answer the student read, so the chat's own
+    answer and sources are handed to the pipeline, not re-asked."""
+    import time as _time
+
+    import story_mvp.app as appmod
+    import story_mvp.video.pipeline as pipe
+    import story_mvp.video.tts as tts
+
+    seen = {}
+
+    def fake_make_video(concept, engine, llm, voice, outdir, illustrator=None, rag=None, progress=None):
+        seen.update(concept=concept, rag=rag)
+        progress("Painting picture 1 of 3", 0.4)
+        (tmp_path / "v.mp4").write_bytes(b"x")
+        return {"status": "ok", "file": "v.mp4", "title": "Why Spoons Get Hot",
+                "seconds": 30.0, "narrated": True, "illustrations": 3}
+
+    monkeypatch.setattr(appmod, "AI_ENABLED", True)
+    monkeypatch.setattr(appmod, "VIDEO_DIR", str(tmp_path))
+    monkeypatch.setattr(appmod, "_VIDEO_STATE", {"worker": None, "illustrator": object()})
+    monkeypatch.setattr(pipe, "make_video", fake_make_video)
+    monkeypatch.setattr(tts, "get_tts", lambda: type("T", (), {"available": True})())
+
+    r = client.post("/api/video", json={
+        "question": "Why does a spoon get hot?", "answer": "Heat flows [S1].", "language": "english",
+        "class_level": "6", "subject": "science",
+        "sources": [{"marker": "S1", "class_level": "6", "page": 3, "excerpt": "dropped"}]})
+    assert r.status_code == 202
+    job_id = r.get_json()["id"]
+    for _ in range(50):
+        job = client.get(f"/api/video/{job_id}").get_json()
+        if job["state"] in {"done", "error"}:
+            break
+        _time.sleep(0.1)
+    assert job["state"] == "done", job
+    assert job["url"].startswith("/videos/file/v.mp4?v=")
+    assert seen["rag"]["answer"] == "Heat flows [S1]." and seen["rag"]["sources"][0]["page"] == 3
+    assert "excerpt" not in seen["rag"]["sources"][0], "only the known source fields are passed on"
+    assert seen["concept"]["class_level"] == "6"
+
+
+def test_chat_page_has_the_video_button(client):
+    body = client.get("/").get_data(as_text=True)
+    assert "/api/video" in body and "Make video" in body
+
+
+def test_audio_length_is_read_even_without_soundfile(tmp_path, monkeypatch):
+    """Without soundfile every scene got its fixed length and longer lines
+    were cut off mid-sentence."""
+    import builtins
+    import wave
+
+    from story_mvp.video.tts import audio_duration
+
+    path = tmp_path / "a.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 24000)
+    real_import = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__",
+                        lambda name, *a, **k: (_ for _ in ()).throw(ImportError(name))
+                        if name == "soundfile" else real_import(name, *a, **k))
+    assert abs(audio_duration(path) - 1.5) < 0.01

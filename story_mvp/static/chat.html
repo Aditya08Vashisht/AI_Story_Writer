@@ -181,6 +181,14 @@ textarea:focus{outline:none;border-color:var(--accent)}
 .srcbtn:hover{color:var(--txt);border-color:var(--accent)}
 .srcbtn.on{color:var(--accent);border-color:var(--accent)}
 .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.vid-prog{margin-top:9px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--dim);flex-basis:100%}
+.vid-bar{width:180px;height:6px;border-radius:4px;background:var(--line);overflow:hidden;flex:none}
+.vid-bar span{display:block;height:100%;background:var(--accent);transition:width .6s ease}
+.vid-done{margin-top:10px;flex-basis:100%}
+.vid-done video{width:100%;max-width:640px;border-radius:12px;border:1px solid var(--line);background:#000;display:block}
+.vid-meta{margin-top:6px;font-size:12px;color:var(--dim)}
+.vid-meta a{color:var(--accent)}
+.vid-err{margin-top:6px;font-size:12px;color:#f87171}
 .caret{display:inline-block;width:7px;height:15px;background:var(--accent);
   margin-left:2px;vertical-align:text-bottom;animation:blink 1s step-end infinite}
 @keyframes blink{50%{opacity:0}}
@@ -314,7 +322,70 @@ function SpeakButton({text, lang, auto}){
   );
 }
 
-function Answer({d, lang, autoSpeak}){
+/* ---- make a video of this answer ----
+   The server reuses this exact answer and its sources, so the video explains
+   what the student just read. One video is made at a time; progress is
+   polled every two seconds. */
+function VideoButton({d, ctx}){
+  const [job,setJob] = useState(null);
+  const [err,setErr] = useState('');
+  const timer = useRef(null);
+  useEffect(()=>()=>clearInterval(timer.current),[]);
+
+  const poll = id => {
+    clearInterval(timer.current);
+    timer.current = setInterval(async ()=>{
+      try{
+        const j = await (await fetch('/api/video/'+id)).json();
+        setJob(j);
+        if(j.state==='done' || j.state==='error' || j.error==='unknown job') clearInterval(timer.current);
+      }catch(e){ /* keep polling through a blip */ }
+    },2000);
+  };
+
+  const start = async ()=>{
+    setErr('');
+    try{
+      const r = await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({question:ctx?.question, answer:d.answer, sources:d.sources,
+          language:ctx?.lang||d.language, class_level:ctx?.cls, subject:ctx?.sub,
+          retrieval_method:d.retrieval_method})});
+      const j = await r.json();
+      if(!r.ok){ setErr(j.error||('failed ('+r.status+')')); return; }
+      setJob(j); poll(j.id);
+    }catch(e){ setErr(String(e)); }
+  };
+
+  if(!job) return (<>
+    <button className="srcbtn" onClick={start} title="Make a 30-second explainer video of this answer">
+      🎬 Make video</button>
+    {err && <span className="vid-err">{err}</span>}
+  </>);
+
+  if(job.state==='error') return (<>
+    <span className="vid-err">Video failed: {job.error}</span>
+    <button className="srcbtn" onClick={()=>{setJob(null);start();}}>Try again</button>
+  </>);
+
+  if(job.state==='done') return (
+    <div className="vid-done">
+      <video src={job.url} controls autoPlay playsInline></video>
+      <div className="vid-meta">
+        {job.result?.title} · {job.result?.seconds}s · {job.result?.narrated?'narrated':'subtitles only'}
+        {' · '}{job.result?.illustrations||0} pictures · <a href="/videos">all videos</a>
+        {job.note && <div className="vid-err">{job.note}</div>}
+      </div>
+    </div>);
+
+  const pct = Math.round((job.progress||0)*100);
+  return (
+    <div className="vid-prog">
+      <div className="vid-bar"><span style={{width:pct+'%'}}></span></div>
+      <span>🎬 {job.state==='queued'?'Waiting for the video maker…':job.step} · {pct}%</span>
+    </div>);
+}
+
+function Answer({d, lang, autoSpeak, ctx}){
   const [showSrc,setShowSrc] = useState(false);
   const srcs = d.sources||[];
   const provider = d.model_provider||'unknown';
@@ -350,6 +421,7 @@ function Answer({d, lang, autoSpeak}){
       {!d.streaming && (
         <div className="actions">
           {d.answer && <SpeakButton text={d.answer} lang={lang||d.language||'english'} auto={autoSpeak}/>}
+          {d.grounded!==false && srcs.length>0 && d.answer && <VideoButton d={d} ctx={ctx}/>}
           {srcs.length>0 && (
             <button className="srcbtn" onClick={()=>setShowSrc(!showSrc)}>
               {showSrc?'Hide':'Show'} {srcs.length} source{srcs.length===1?'':'s'}
@@ -391,7 +463,8 @@ function App(){
     setMsgs(m=>[...m,{role:'user',text:question,lang:L}]); setQ(''); setBusy(true);
     const idx = msgs.length + 1;
     stopSpeaking();
-    setMsgs(m=>[...m,{role:'assistant',lang:L,autoSpeak:autoRead,data:{answer:'',sources:[],streaming:true}}]);
+    setMsgs(m=>[...m,{role:'assistant',lang:L,cls:C,sub:S,question,autoSpeak:autoRead,
+                      data:{answer:'',sources:[],streaming:true}}]);
 
     try{
       const r = await fetch('/api/chat/stream',{
@@ -490,7 +563,7 @@ function App(){
                       ? <div className={'bubble '+(isDeva(m.text)?'deva':'')}>{m.text}</div>
                       : m.error
                         ? <div className="bubble" style={{color:'var(--danger)'}}>Request failed: {m.error}</div>
-                        : <Answer d={m.data} lang={m.lang} autoSpeak={m.autoSpeak}/>}
+                        : <Answer d={m.data} lang={m.lang} autoSpeak={m.autoSpeak} ctx={m}/>}
                   </div>
                 </div>
               ))}

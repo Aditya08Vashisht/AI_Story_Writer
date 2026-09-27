@@ -16,15 +16,13 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from story_mvp.rag_chat import answer_question  # noqa: E402
-from story_mvp.video import cards, render as rnd  # noqa: E402
-from story_mvp.video.script import ScriptError, script_from_answer  # noqa: E402
-from story_mvp.video.tts import audio_duration, get_tts  # noqa: E402
+from story_mvp.video.pipeline import load_illustrator, make_video, slugify  # noqa: E402,F401
+from story_mvp.video.script import ScriptError  # noqa: E402
+from story_mvp.video.tts import get_tts  # noqa: E402
 
 
 def preflight_llm() -> bool:
@@ -60,115 +58,6 @@ def preflight_llm() -> bool:
 
     print(f"model server OK at {host} · {model}")
     return True
-
-
-def make_embedder(engine):
-    """bge-m3 from the retrieval engine, for the script's topic check."""
-    model = getattr(engine, "model", None)
-    if model is None or not hasattr(model, "encode"):
-        return None
-    return lambda texts: model.encode(list(texts), normalize_embeddings=True)
-
-
-def slugify(text: str, limit: int = 48) -> str:
-    """Readable and unique. isalnum() drops Devanagari vowel signs, so two
-    Hindi questions could collapse to one name and overwrite each other's
-    video -- the title of one over the scenes of another. The hash makes
-    every question its own file."""
-    import hashlib
-    import unicodedata
-
-    keep = "".join(c if c.isalnum() or c in " -_" or unicodedata.category(c).startswith("M")
-                   else "" for c in text)
-    stem = "-".join(keep.lower().split())[:limit] or "video"
-    return f"{stem}-{hashlib.sha1(text.strip().encode('utf-8')).hexdigest()[:6]}"
-
-
-def make_one(concept: dict, engine, llm, tts, outdir: Path, no_audio: bool = False,
-             illustrator=None) -> dict:
-    question = concept["question"]
-    request = {
-        "question": question,
-        "language": concept.get("language", "english"),
-        "class_level": str(concept.get("class_level", "")),
-        "subject": concept.get("subject", ""),
-    }
-    print(f"\n{'='*70}\n{question}\n  {request['language']} · class {request['class_level'] or '-'} · {request['subject'] or '-'}")
-
-    t0 = time.time()
-    rag = answer_question(request, engine, llm)
-    rag["question"] = question
-    print(f"  retrieval: {len(rag.get('sources') or [])} sources, grounded={rag.get('grounded')}")
-
-    if not rag.get("grounded") or not rag.get("sources"):
-        print("  SKIPPED: no grounded sources. Refusing to make a confident video "
-              "about something the textbooks do not cover.")
-        return {"question": question, "status": "refused_ungrounded"}
-
-    t_script = time.time()
-    want_visuals = illustrator is not None
-    script = script_from_answer(rag, llm, request, debug_dir=outdir / "debug",
-                                want_visuals=want_visuals, embed=make_embedder(engine))
-    print(f"  script: {script.total_words} words across {len(script.scenes)} scenes "
-          f"({time.time() - t_script:.0f}s)")
-
-    # Illustrations: one per title/idea/check scene. Any single failure falls
-    # back to a text card for that scene rather than losing the video.
-    pictures, illustration_log = {}, []
-    if illustrator is not None:
-        t_img = time.time()
-        from story_mvp.video.script import VISUAL_SCENES
-
-        for scene in script.scenes:
-            if scene.key not in VISUAL_SCENES or not scene.visual:
-                continue
-            result = illustrator.generate(scene.visual)
-            if result is None:
-                illustration_log.append({"scene": scene.key, "visual": scene.visual, "generated": False})
-                continue
-            img, meta = result
-            pictures[scene.key] = img
-            illustration_log.append({"scene": scene.key, **meta, "generated": True})
-            print(f"    image '{scene.key}': {'cached' if meta['cached'] else 'generated'} "
-                  f"(seed {meta['seed']}) - {scene.visual[:60]}")
-        print(f"  illustrations: {len(pictures)}/{len(VISUAL_SCENES)} ({time.time() - t_img:.0f}s)")
-
-    # Render cards. Refuse Devanagari if this Pillow cannot shape it.
-    try:
-        images = [cards.render_scene(s, script, pictures.get(s.key)) for s in script.scenes]
-    except cards.RenderError as exc:
-        print(f"  RENDER REFUSED: {exc}")
-        return {"question": question, "status": "refused_no_shaper", "error": str(exc)}
-
-    # Narrate. Real audio length drives scene duration when available.
-    audio_paths, durations = [], []
-    work = outdir / "audio"
-    for i, scene in enumerate(script.scenes):
-        path = None
-        if tts is not None and not no_audio:
-            path = tts.speak(scene.narration, script.language, work / f"{slugify(question)}_{i}.wav")
-        audio_paths.append(path)
-        dur = audio_duration(path) if path else None
-        # Narration sets the pace: a scene lasts as long as its line, plus a breath.
-        durations.append(max(2.0, dur + 0.6) if dur else scene.seconds)
-
-    out = outdir / f"{slugify(question)}.mp4"
-    video = rnd.render_video(script, images, audio_paths, durations, out, burn_subtitles=True)
-    side = rnd.write_sidecar(script, video, {
-        "rag_answer": rag.get("answer"),
-        "retrieval_method": rag.get("retrieval_method"),
-        "seconds_to_build": round(time.time() - t0, 1),
-        "narrated": any(p for p in audio_paths),
-        "voice": (getattr(tts, "engine", None) or getattr(tts, "name", None)) if tts else None,
-        "illustrations": illustration_log,
-        "image_model": getattr(illustrator, "model_id", None),
-    })
-
-    total = sum(durations)
-    print(f"  wrote {video}  ({total:.1f}s, narrated={any(audio_paths)})")
-    print(f"  audit {side}")
-    return {"question": question, "status": "ok", "video": str(video),
-            "seconds": round(total, 1), "sources": len(rag["sources"])}
 
 
 def main() -> int:
@@ -215,29 +104,16 @@ def main() -> int:
 
     illustrator = None
     if not args.no_images:
-        from story_mvp.video.images import IllustrationGenerator
-
-        illustrator = IllustrationGenerator()
-        # Load once, up front, so a missing diffusers or GPU is reported
-        # before any concept runs -- and then the batch continues on text cards.
-        if not illustrator.available:
-            reason = illustrator.failure or ""
-            print("\nNOTE: illustrations disabled -- videos will use text cards.")
-            if "gated" in reason or "403" in reason or "401" in reason:
-                print("      The image model is gated. Signed in to Hugging Face, open")
-                print(f"        https://huggingface.co/{illustrator.model_id}")
-                print("      click 'Agree and access repository', then run again.\n")
-            elif "No module" in reason or "cannot import" in reason:
-                print("      pip install -U diffusers accelerate sentencepiece protobuf\n")
-            else:
-                print(f"      {reason.splitlines()[0] if reason else 'unknown error'}\n")
-            illustrator = None
+        # Loaded once, up front, so a missing model is reported before any
+        # concept runs -- and the batch then continues on text cards.
+        illustrator, reason = load_illustrator()
+        if illustrator is None:
+            print(f"\nNOTE: illustrations disabled -- videos will use text cards.\n      {reason}\n")
 
     results = []
     for concept in concepts:
         try:
-            results.append(make_one(concept, engine, llm, tts, outdir, args.no_audio,
-                                    illustrator=illustrator))
+            results.append(make_video(concept, engine, llm, tts, outdir, illustrator=illustrator))
         except ScriptError as exc:
             print(f"  SCRIPT REFUSED: {exc}")
             results.append({"question": concept.get("question"), "status": "refused_script",

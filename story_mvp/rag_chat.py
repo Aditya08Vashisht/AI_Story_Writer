@@ -385,7 +385,9 @@ def _citations(results: List[Dict]) -> List[Dict[str, Any]]:
                 "language": doc.get("language"),
                 "chapter": doc.get("chapter"),
                 "page": doc.get("page_start"),
-                "source_file": os.path.basename(source_file) if source_file else None,
+                # Split on both separators: the index was built on Windows, and
+                # os.path.basename on Linux left the whole D:\... path showing.
+                "source_file": re.split(r"[\\/]", source_file)[-1] if source_file else None,
                 "score": _source_score(doc),
                 "rerank_score": doc.get("rerank_score"),
                 "retrieval_method": doc.get("retrieval_method"),

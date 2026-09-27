@@ -199,6 +199,102 @@ def tts():
         return jsonify({"error": f"voice server unavailable: {exc}"}), 503
 
 
+# ------------------------------------------------------------ video from chat
+#
+# The chat's "Make video" button. One worker thread, one video at a time: a
+# video uses the GPU for the script, three pictures and the voice, and two at
+# once would only make both slower. The image model is loaded on the first
+# video and kept, so later videos skip the load.
+
+import queue as _queue
+import threading as _threading
+import uuid as _uuid
+
+VIDEO_JOBS: dict = {}
+_VIDEO_QUEUE: "_queue.Queue" = _queue.Queue()
+_VIDEO_STATE = {"worker": None, "illustrator": None}
+_VIDEO_LOCK = _threading.Lock()
+_SOURCE_KEYS = ("marker", "class_level", "subject", "language", "chapter", "page", "source_file")
+
+
+def _video_worker():
+    from story_mvp.video.pipeline import load_illustrator, make_video
+    from story_mvp.video.tts import get_tts
+
+    while True:
+        job_id, concept, rag = _VIDEO_QUEUE.get()
+        job = VIDEO_JOBS[job_id]
+
+        def progress(step, fraction, job=job):
+            job.update(step=step, progress=round(float(fraction), 2))
+
+        job.update(state="running", step="Starting", started=datetime.now().isoformat(timespec="seconds"))
+        try:
+            if _VIDEO_STATE["illustrator"] is None:
+                progress("Loading the picture model (first video only)", 0.02)
+                gen, reason = load_illustrator()
+                _VIDEO_STATE["illustrator"] = gen
+                if gen is None:
+                    job["note"] = f"No pictures: {reason}"
+            tts = get_tts()
+            if not tts.available:
+                job["note"] = (job.get("note", "") + " No voice: the voice server is not running.").strip()
+                tts = None
+            result = make_video(concept, RAG_ENGINE, LLM_CLIENT, tts, VIDEO_DIR,
+                                illustrator=_VIDEO_STATE["illustrator"], rag=rag, progress=progress)
+            if result.get("status") != "ok":
+                job.update(state="error", error=result.get("error") or result.get("status"))
+            else:
+                path = os.path.join(VIDEO_DIR, result["file"])
+                job.update(state="done", progress=1.0, step="Done", result=result,
+                           url=f"/videos/file/{result['file']}?v={int(os.path.getmtime(path))}")
+        except Exception as exc:  # noqa: BLE001 - report it on the page, keep the worker alive
+            job.update(state="error", error=str(exc)[:400])
+        finally:
+            _VIDEO_QUEUE.task_done()
+
+
+@app.route("/api/video", methods=["POST"])
+def start_video():
+    """Make a 30-second video of an answer the student is looking at."""
+    if not AI_ENABLED:
+        return jsonify({"error": "videos need the AI models; the app is running UI-only"}), 503
+    p = request.get_json(silent=True) or {}
+    question = str(p.get("question", "")).strip()[:500]
+    answer = str(p.get("answer", "")).strip()[:6000]
+    sources = [{k: s.get(k) for k in _SOURCE_KEYS} for s in (p.get("sources") or [])[:10]
+               if isinstance(s, dict)]
+    if not question or not answer:
+        return jsonify({"error": "question and answer are required"}), 400
+    if not sources:
+        return jsonify({"error": "This answer has no textbook sources, so no video is made for it."}), 400
+
+    language = p.get("language") if p.get("language") in {"english", "hindi", "marathi"} else "english"
+    concept = {"question": question, "language": language,
+               "class_level": str(p.get("class_level") or ""), "subject": str(p.get("subject") or "")}
+    rag = {"answer": answer, "sources": sources, "grounded": True,
+           "retrieval_method": p.get("retrieval_method")}
+
+    job_id = _uuid.uuid4().hex[:12]
+    VIDEO_JOBS[job_id] = {"id": job_id, "state": "queued", "step": "Waiting for the video maker",
+                          "progress": 0.0, "question": question, "queue_position": _VIDEO_QUEUE.qsize()}
+    for old in list(VIDEO_JOBS)[:-50]:          # keep the table small
+        if VIDEO_JOBS[old]["state"] in {"done", "error"}:
+            VIDEO_JOBS.pop(old, None)
+    _VIDEO_QUEUE.put((job_id, concept, rag))
+    with _VIDEO_LOCK:
+        if _VIDEO_STATE["worker"] is None or not _VIDEO_STATE["worker"].is_alive():
+            _VIDEO_STATE["worker"] = _threading.Thread(target=_video_worker, daemon=True)
+            _VIDEO_STATE["worker"].start()
+    return jsonify(VIDEO_JOBS[job_id]), 202
+
+
+@app.route("/api/video/<job_id>")
+def video_status(job_id):
+    job = VIDEO_JOBS.get(job_id)
+    return (jsonify(job), 200) if job else (jsonify({"error": "unknown job"}), 404)
+
+
 @app.route("/api/options")
 def options():
     return jsonify(

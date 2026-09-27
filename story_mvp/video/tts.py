@@ -317,11 +317,21 @@ def get_tts():
 
 
 def audio_duration(path: Path) -> Optional[float]:
+    """Seconds of audio. Falls back to the standard-library wave reader: if
+    soundfile is missing, returning None made every scene its fixed length,
+    and the render then cut longer narration off mid-sentence."""
     try:
         import soundfile as sf
 
         info = sf.info(str(path))
         return float(info.frames) / float(info.samplerate)
-    except Exception:
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import wave
+
+        with wave.open(str(path), "rb") as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:  # noqa: BLE001
         return None
 
