@@ -3,7 +3,9 @@
 # Every value can be overridden by exporting it first.
 
 export USER=${USER:-$(id -un)}
-export PROJ=${PROJ:-/scratch/$USER/storytutor}
+# The project is wherever this file lives -- home or /scratch both work.
+# Big downloads (models, caches) stay on /scratch below either way.
+export PROJ=${PROJ:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 
 # Ollama (user-space install from scripts/setup_ollama.sh)
 export OLLAMA_ROOT=${OLLAMA_ROOT:-/scratch/$USER/ollama}

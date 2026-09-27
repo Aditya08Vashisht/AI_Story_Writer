@@ -16,7 +16,7 @@ set -euo pipefail
 module load mamba/latest
 source activate ${VLLM_ENV:-storytutor-vllm}
 
-export PROJ=${PROJ:-/scratch/$USER/storytutor}
+export PROJ=${PROJ:-${SLURM_SUBMIT_DIR:-/scratch/$USER/storytutor}}
 export HF_HOME=${HF_HOME:-/scratch/$USER/hf_cache}
 export TORCH_HOME=${TORCH_HOME:-/scratch/$USER/torch_cache}
 export TOKENIZERS_PARALLELISM=false

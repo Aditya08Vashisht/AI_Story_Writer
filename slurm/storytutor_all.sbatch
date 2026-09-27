@@ -16,7 +16,8 @@ set -uo pipefail
 module load mamba/latest
 source activate storytutor
 
-export PROJ=${PROJ:-/scratch/$USER/storytutor}
+# The folder you ran sbatch from (home or /scratch).
+export PROJ=${PROJ:-$SLURM_SUBMIT_DIR}
 cd "$PROJ"
 mkdir -p logs
 

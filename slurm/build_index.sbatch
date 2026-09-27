@@ -16,7 +16,7 @@ set -euo pipefail
 module load mamba/latest
 source activate storytutor
 
-export PROJ=${PROJ:-/scratch/$USER/storytutor}
+export PROJ=${PROJ:-${SLURM_SUBMIT_DIR:-/scratch/$USER/storytutor}}
 export HF_HOME=${HF_HOME:-/scratch/$USER/hf_cache}
 export TORCH_HOME=${TORCH_HOME:-/scratch/$USER/torch_cache}
 export STORYTUTOR_DEVICE=cuda
