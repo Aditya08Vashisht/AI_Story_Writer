@@ -4,8 +4,10 @@
 
 export USER=${USER:-$(id -un)}
 # The project is wherever this file lives -- home or /scratch both work.
+# Always derived, never inherited: a PROJ left in ~/.bashrc from the /scratch
+# days sent every command back to the old copy after the move to home.
 # Big downloads (models, caches) stay on /scratch below either way.
-export PROJ=${PROJ:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+export PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Ollama (user-space install from scripts/setup_ollama.sh)
 export OLLAMA_ROOT=${OLLAMA_ROOT:-/scratch/$USER/ollama}

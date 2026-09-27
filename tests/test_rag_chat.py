@@ -250,3 +250,38 @@ def test_with_sources_the_full_teaching_prompt_is_used(monkeypatch):
     assert out["grounded"] is True
     assert "analog" in seen["system"].lower()
     assert "Heat energy moves from the hot water" in seen["system"]
+
+
+def test_a_translated_answer_key_still_yields_the_answer():
+    """Hindi and Marathi replies came back as {"उत्तर": ...}; the answer was
+    thrown away and the user got raw passages."""
+    from story_mvp.rag_chat import extract_answer
+
+    assert extract_answer('{"answer": "Heat flows [S1]."}') == "Heat flows [S1]."
+    assert extract_answer('{"उत्तर": "पौधे भोजन बनाते हैं [S1]।", "x": "a"}') == "पौधे भोजन बनाते हैं [S1]।"
+    assert extract_answer("{}") == ""
+    assert extract_answer("plain prose reply") == "plain prose reply"
+
+
+def test_ollama_gets_a_context_window_big_enough_for_devanagari(monkeypatch):
+    """The 2048-token default silently cut the instructions off Hindi prompts."""
+    import json
+    import urllib.request
+
+    from story_mvp import rag_chat
+
+    sent = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return json.dumps({"message": {"content": '{"answer": "ok"}'}}).encode()
+
+    def fake_open(req, timeout=None):
+        sent.update(json.loads(req.data.decode()))
+        return Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_open)
+    provider = type("P", (), {"provider_name": "ollama", "model": "m", "host": "http://h"})()
+    rag_chat._call_provider(provider, "system", "user")
+    assert sent["options"]["num_ctx"] >= 8192

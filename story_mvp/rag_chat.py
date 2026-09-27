@@ -17,6 +17,7 @@ invented text is actively misled.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -398,8 +399,6 @@ def answer_question(
 def _generate(llm_client, request: Dict[str, str], context: str,
               history: List[Dict[str, str]] = None, prebuilt: bool = False) -> Optional[str]:
     """Call the provider chain. `context` is a full prompt when prebuilt."""
-    from story_mvp.model_clients import parse_json_response
-
     system = context if prebuilt else build_chat_prompt(request, context)
     user = request["question"]
 
@@ -410,16 +409,46 @@ def _generate(llm_client, request: Dict[str, str], context: str,
         except Exception as exc:  # noqa: BLE001
             print(f"chat: {getattr(provider, 'provider_name', '?')} failed - {exc}")
             continue
-        try:
-            answer = parse_json_response(raw).get("answer", "").strip()
-        except Exception:
-            answer = _clean(raw, 4000)
+        answer = extract_answer(raw)
+        if not answer:
+            print(f"chat: {getattr(provider, 'provider_name', '?')} gave no usable answer: {raw[:200]!r}")
         if answer:
             llm_client.last_provider = getattr(provider, "provider_name", "unknown")
             if hasattr(client, "last_provider"):
                 client.last_provider = llm_client.last_provider
             return answer
     return None
+
+
+# Ollama's default context is 2048 tokens and it silently drops the START of a
+# longer prompt -- the instructions, including the {"answer": ...} format.
+# Devanagari costs several times more tokens than English, so five Hindi or
+# Marathi passages overflowed it: the model replied in some other shape, no
+# "answer" was found, and every Hindi/Marathi question fell back to raw
+# passages while English worked. qwen2.5 supports 32k.
+OLLAMA_NUM_CTX = int(os.environ.get("STORYTUTOR_NUM_CTX", "8192"))
+
+
+def extract_answer(raw: str) -> str:
+    """The reply text, whatever the model called the key.
+
+    Asked for {"answer": ...}, a model sometimes translates the key
+    ({"उत्तर": ...}) or picks its own ({"response": ...}). The longest string
+    in the object is the reply; an empty object is a failed reply.
+    """
+    from story_mvp.model_clients import parse_json_response
+
+    try:
+        data = parse_json_response(raw)
+    except Exception:  # noqa: BLE001 - prose, not JSON
+        return _clean(raw, 4000)
+    if not isinstance(data, dict):
+        return _clean(raw, 4000)
+    answer = data.get("answer")
+    if isinstance(answer, str) and answer.strip():
+        return answer.strip()
+    strings = [v for v in data.values() if isinstance(v, str) and v.strip()]
+    return max(strings, key=len).strip() if strings else ""
 
 
 def _call_provider(provider, system: str, user: str,
@@ -445,7 +474,7 @@ def _call_provider(provider, system: str, user: str,
 
     if name == "ollama":
         body = {"model": provider.model, "stream": False, "format": "json",
-                "messages": messages, "options": {"temperature": 0.3}}
+                "messages": messages, "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX}}
         req = urllib.request.Request(
             f"{provider.host}/api/chat", data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST")
@@ -574,12 +603,7 @@ def stream_answer(payload: Dict[str, Any], rag_engine, llm_client=None, top_k: i
 
 def parse_json_response_safe(raw: str) -> str:
     """Pull the answer out of a JSON reply, or take the prose if it isn't JSON."""
-    from story_mvp.model_clients import parse_json_response
-
-    try:
-        return parse_json_response(raw).get("answer", "").strip() or raw.strip()
-    except Exception:
-        return raw.strip()
+    return extract_answer(raw) or raw.strip()
 
 
 def _stream_provider(provider, system: str, user: str, history=None):
@@ -595,7 +619,7 @@ def _stream_provider(provider, system: str, user: str, history=None):
 
     if name == "ollama":
         body = {"model": provider.model, "stream": True, "format": "json",
-                "messages": messages, "options": {"temperature": 0.4}}
+                "messages": messages, "options": {"temperature": 0.4, "num_ctx": OLLAMA_NUM_CTX}}
         req = urllib.request.Request(
             f"{provider.host}/api/chat", data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST")
