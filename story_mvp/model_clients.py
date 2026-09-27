@@ -90,7 +90,7 @@ class OllamaClient(BaseModelClient):
                 {"role": "user", "content": build_user_prompt(request)},
             ],
             "options": {"temperature": 0.6,
-                        "num_ctx": int(os.environ.get("STORYTUTOR_NUM_CTX", "8192"))},
+                        "num_ctx": int(os.environ.get("STORYTUTOR_NUM_CTX", "16384"))},
         }
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(

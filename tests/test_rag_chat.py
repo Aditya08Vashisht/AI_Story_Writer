@@ -285,3 +285,17 @@ def test_ollama_gets_a_context_window_big_enough_for_devanagari(monkeypatch):
     provider = type("P", (), {"provider_name": "ollama", "model": "m", "host": "http://h"})()
     rag_chat._call_provider(provider, "system", "user")
     assert sent["options"]["num_ctx"] >= 8192
+
+
+def test_devanagari_passages_are_kept_inside_the_token_budget():
+    """Five full Marathi chunks were ~9,500 tokens: past the context, so the
+    instructions were cut and the model replied with a stray title."""
+    from story_mvp.rag_chat import SOURCE_TOKEN_BUDGET, _format_sources, estimate_tokens
+
+    marathi = "भारतातील ब्रिटीश वसाहतवादाचा देशावर परिणाम झाला। " * 40   # ~1,900 chars
+    docs = [{"text": marathi, "class_level": "8", "language": "marathi"} for _ in range(5)]
+    formatted = _format_sources(docs)
+    assert estimate_tokens(formatted) <= SOURCE_TOKEN_BUDGET * 1.15
+    assert formatted.count("[S") == 5, "every source keeps its marker"
+    english = [{"text": "Heat flows from hot to cold. " * 20}]
+    assert "…" not in _format_sources(english), "short English passages are not trimmed"

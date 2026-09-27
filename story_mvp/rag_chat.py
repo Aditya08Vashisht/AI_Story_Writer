@@ -221,7 +221,37 @@ def _source_score(doc: Dict[str, Any]) -> float:
     return 0.0
 
 
-def _format_sources(results: List[Dict]) -> str:
+# Token cost per character for qwen2.5, measured on this corpus: 1800 chars
+# of English are ~360 tokens, of Hindi ~1640, of Marathi ~1700. Five full
+# Marathi chunks (~8500 tokens) overflowed even an 8k context, and Ollama
+# drops the START of an overflowing prompt -- the instructions -- so the
+# model answered with a stray title or nothing.
+_DEVA_CHAR = re.compile(r"[ऀ-ॿ]")
+SOURCE_TOKEN_BUDGET = int(os.environ.get("STORYTUTOR_SOURCE_TOKENS", "4500"))
+
+
+def estimate_tokens(text: str) -> int:
+    deva = len(_DEVA_CHAR.findall(text or ""))
+    return int(deva * 0.95 + (len(text or "") - deva) * 0.25) + 1
+
+
+def _fit(text: str, max_tokens: int) -> str:
+    """Trim to about max_tokens, at a sentence or word boundary."""
+    if estimate_tokens(text) <= max_tokens:
+        return text
+    cut = text[: max(1, int(len(text) * max_tokens / estimate_tokens(text)))]
+    for mark in ("।", ". ", "? ", "! ", " "):   # danda first, for Devanagari
+        at = cut.rfind(mark)
+        if at > len(cut) * 0.6:
+            return cut[: at + 1].strip() + " …"
+    return cut.strip() + " …"
+
+
+def _format_sources(results: List[Dict], budget: int = None) -> str:
+    """The passages for the prompt, inside a token budget. Each passage gets an
+    equal share, so a long Marathi chunk cannot push the instructions out of
+    the model's context."""
+    share = max(200, (budget or SOURCE_TOKEN_BUDGET) // max(1, len(results)))
     parts = []
     for i, doc in enumerate(results, 1):
         bits = [
@@ -232,7 +262,7 @@ def _format_sources(results: List[Dict]) -> str:
             f"page {doc['page_start']}" if doc.get("page_start") else None,
         ]
         label = ", ".join(b for b in bits if b)
-        parts.append(f"[S{i}] ({label})\n{doc.get('text', '')}\n")
+        parts.append(f"[S{i}] ({label})\n{_fit(doc.get('text', ''), share)}\n")
     return "\n".join(parts)
 
 
@@ -425,8 +455,9 @@ def _generate(llm_client, request: Dict[str, str], context: str,
 # Devanagari costs several times more tokens than English, so five Hindi or
 # Marathi passages overflowed it: the model replied in some other shape, no
 # "answer" was found, and every Hindi/Marathi question fell back to raw
-# passages while English worked. qwen2.5 supports 32k.
-OLLAMA_NUM_CTX = int(os.environ.get("STORYTUTOR_NUM_CTX", "8192"))
+# passages while English worked. qwen2.5 supports 32k; 16k leaves room for
+# the passage budget, instructions, history and the reply.
+OLLAMA_NUM_CTX = int(os.environ.get("STORYTUTOR_NUM_CTX", "16384"))
 
 
 def extract_answer(raw: str) -> str:
