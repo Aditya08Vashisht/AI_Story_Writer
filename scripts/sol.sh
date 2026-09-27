@@ -137,7 +137,11 @@ run_tests() {
     note "voice server not running -- skipped"
   fi
   echo "4/4  the 53 behavioural chatbot questions"
-  python eval/run_chat_tests.py --url "$STORYTUTOR_URL" 2>&1 | tail -n 20 || fail=1
+  python eval/run_chat_tests.py --url "$STORYTUTOR_URL" > "$LOGS/chat_tests.log" 2>&1 || fail=1
+  # Every failed question with its reasons, then the table -- a plain tail
+  # cut off which questions failed, leaving only stray reason lines.
+  grep -A3 "  FAIL " "$LOGS/chat_tests.log" | grep -v "^--$" | grep -v "  PASS \|  GAP "
+  sed -n '/^=====/,$p' "$LOGS/chat_tests.log"
   [ $fail -eq 0 ] && ok "all checks passed" || bad "some checks failed (see above)"
   return $fail
 }
