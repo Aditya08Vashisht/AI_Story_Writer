@@ -7,6 +7,7 @@
 #   bash scripts/sol.sh ask "question" [--language hindi] [--speak]
 #   bash scripts/sol.sh videos        make the concept videos (concepts.json)
 #   bash scripts/sol.sh test          offline tests + live chatbot + voice checks
+#   bash scripts/sol.sh link          a browser link (https://....trycloudflare.com)
 #   bash scripts/sol.sh down          stop everything
 #
 # Run it from the project folder, in the terminal where the `storytutor`
@@ -146,7 +147,39 @@ run_tests() {
   return $fail
 }
 
+share_link() {
+  # A link that works in any browser, without the VS Code tunnel. cloudflared
+  # is one static binary; no account, no root. The link is random and lasts
+  # until `sol.sh down` -- but anyone who has it can open the chatbot, so
+  # share it only with people you would show the project to.
+  alive "$STORYTUTOR_URL/api/health" || { bad "web app not running -- run: bash scripts/sol.sh up"; return 1; }
+  local bin=/scratch/$USER/bin/cloudflared log="$LOGS/link.log" url="" i
+  if [ ! -x "$bin" ]; then
+    mkdir -p "$(dirname "$bin")"
+    note "downloading cloudflared (one time, ~40 MB)"
+    curl -fsSL -o "$bin" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64       && chmod +x "$bin" || { bad "download failed"; return 1; }
+  fi
+  pkill -u "$USER" -f "cloudflared tunnel" 2>/dev/null
+  nohup "$bin" tunnel --no-autoupdate --url "$STORYTUTOR_URL" > "$log" 2>&1 &
+  for ((i = 0; i < 40; i++)); do
+    url=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$log" | head -1)
+    [ -n "$url" ] && break
+    sleep 1
+  done
+  if [ -z "$url" ]; then
+    bad "no link yet -- last lines of $log:"; tail -n 8 "$log" | sed 's/^/      /'; return 1
+  fi
+  echo
+  ok "open in your browser (give it ~10 s the first time):"
+  echo
+  echo "      chatbot   $url/"
+  echo "      videos    $url/videos"
+  echo
+  note "stops with: bash scripts/sol.sh down"
+}
+
 down() {
+  pkill -u "$USER" -f "cloudflared tunnel" && ok "browser link closed" || true
   pkill -u "$USER" -f "story_mvp.app"    && ok "web app stopped"      || note "web app was not running"
   pkill -u "$USER" -f "tts_server.py"    && ok "voice server stopped" || note "voice server was not running"
   pkill -u "$USER" -f "make_video.py"    && ok "video job stopped"    || true
@@ -171,7 +204,8 @@ case "$cmd" in
   ask)       python scripts/ask.py "$@" ;;
   videos)    python scripts/make_video.py --batch "${1:-concepts.json}" 2>&1 | tee "$LOGS/videos.log" ;;
   test)      run_tests ;;
+  link)      share_link ;;
   setup-tts) setup_tts ;;
   down)      down ;;
-  *)         sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)         sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac
