@@ -561,6 +561,10 @@ def _generate(llm_client, request: Dict[str, str], context: str,
 # passages while English worked. qwen2.5 supports 32k; 16k leaves room for
 # the passage budget, instructions, history and the reply.
 OLLAMA_NUM_CTX = int(os.environ.get("STORYTUTOR_NUM_CTX", "16384"))
+# Thinking models (qwen3, qwen3.5) otherwise write a hidden reasoning pass
+# before every reply -- minutes on a CPU, for a grounded answer that does not
+# need it. Older Ollama versions ignore the field.
+OLLAMA_THINK = os.environ.get("STORYTUTOR_OLLAMA_THINK", "").lower() in {"1", "true", "yes"}
 
 
 def extract_answer(raw: str) -> str:
@@ -608,7 +612,7 @@ def _call_provider(provider, system: str, user: str,
 
     if name == "ollama":
         body = {"model": provider.model, "stream": False, "format": "json",
-                "messages": messages, "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX}}
+                "messages": messages, "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX}, "think": OLLAMA_THINK}
         req = urllib.request.Request(
             f"{provider.host}/api/chat", data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST")
@@ -761,7 +765,7 @@ def _stream_provider(provider, system: str, user: str, history=None):
 
     if name == "ollama":
         body = {"model": provider.model, "stream": True, "format": "json",
-                "messages": messages, "options": {"temperature": 0.4, "num_ctx": OLLAMA_NUM_CTX}}
+                "messages": messages, "options": {"temperature": 0.4, "num_ctx": OLLAMA_NUM_CTX}, "think": OLLAMA_THINK}
         req = urllib.request.Request(
             f"{provider.host}/api/chat", data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST")
