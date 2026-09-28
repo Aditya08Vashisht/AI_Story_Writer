@@ -3,82 +3,122 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StoryTutor Videos</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
+<title>Video Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600&family=Tiro+Devanagari+Hindi&family=Tiro+Devanagari+Marathi&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0f17;--panel:#121822;--panel2:#1a2230;--line:#243044;--txt:#e6edf6;--dim:#8fa3bd;--accent:#4f9cf9;--ok:#22c55e;--warn:#f59e0b}
+/* Same paper-and-ink system as the chat page. */
+:root{
+  --paper:#f3eee3; --sheet:#fbf8f1; --ink:#211f1a; --ink-2:#4a463d; --muted:#766f61;
+  --rule:#ddd3bf; --rule-2:#e9e1cf; --blue:#1f4e8c; --marigold-soft:#f7e2a6; --stamp:#a8392a;
+  --serif:'Tiro Devanagari Hindi',Georgia,serif; --serif-mr:'Tiro Devanagari Marathi','Tiro Devanagari Hindi',Georgia,serif;
+  --sans:'Hind',system-ui,-apple-system,'Segoe UI',sans-serif; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#18221e; --sheet:#1e2a25; --ink:#ebe5d4; --ink-2:#cfc8b6; --muted:#9ca496;
+    --rule:#33443c; --rule-2:#2a3832; --blue:#9fc0ec; --marigold-soft:#4a3f22; --stamp:#e2826f; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#18221e; --sheet:#1e2a25; --ink:#ebe5d4; --ink-2:#cfc8b6; --muted:#9ca496;
+  --rule:#33443c; --rule-2:#2a3832; --blue:#9fc0ec; --marigold-soft:#4a3f22; --stamp:#e2826f; color-scheme:dark;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font-family:'Inter','Noto Sans Devanagari',system-ui,sans-serif;min-height:100vh}
-header{display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
-.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#a78bfa);display:grid;place-items:center;font-weight:700;font-size:14px;color:#fff}
-header h1{font-size:15px;font-weight:600}
-header .sub{font-size:12px;color:var(--dim)}
-header a{margin-left:auto;color:var(--accent);text-decoration:none;font-size:13px;font-weight:600;border:1px solid var(--line);padding:6px 12px;border-radius:8px}
-main{max-width:1100px;margin:0 auto;padding:28px 20px}
-.empty{color:var(--dim);text-align:center;padding:60px 16px;line-height:1.7}
-.empty code{background:var(--panel2);padding:2px 7px;border-radius:5px;color:var(--txt)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:24px}
-video{width:100%;display:block;background:#000;aspect-ratio:16/9}
-.meta{padding:16px 18px}
-.meta h2{font-size:17px;margin-bottom:6px;line-height:1.5}
-.pills{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}
-.pill{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);font-weight:600}
-.pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}
-details{margin-top:8px;font-size:13px;color:var(--dim)}
-summary{cursor:pointer;color:var(--txt);font-weight:600;padding:4px 0}
-.row{padding:7px 0;border-bottom:1px solid var(--line);line-height:1.65}
-.row b{color:var(--txt);font-weight:600}
-.dl{display:inline-block;margin-top:10px;font-size:12px;color:var(--accent)}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--blue)}
+header{border-bottom:1px solid var(--rule);background:var(--sheet)}
+header .in{max-width:1120px;margin:0 auto;padding:18px 24px;display:flex;align-items:center;gap:12px}
+header svg{flex:none}
+header b{font-family:var(--serif);font-weight:400;font-size:23px;line-height:1}
+header small{display:block;font-size:12.5px;color:var(--muted);margin-top:3px}
+header nav{margin-left:auto}
+header nav a{font-size:15px;color:var(--ink-2);text-decoration:none;border:1px solid var(--rule);border-radius:6px;padding:7px 12px;background:var(--paper)}
+header nav a:hover{border-color:var(--ink-2);color:var(--ink)}
+main{max-width:1120px;margin:0 auto;padding:36px 24px 60px}
+@media (max-width:600px){header .in,main{padding-left:16px;padding-right:16px}}
+h1{font-family:var(--serif);font-weight:400;font-size:40px;line-height:1.1;letter-spacing:-.015em}
+.lede{color:var(--ink-2);margin-top:10px;max-width:640px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,460px),1fr));gap:40px 32px;margin-top:34px}
+figure video{width:100%;display:block;border-radius:6px;background:#000;aspect-ratio:16/9}
+figcaption{margin-top:10px}
+.fig{font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.title{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-top:3px}
+.title h2{font-family:var(--serif);font-weight:400;font-size:21px;line-height:1.4}
+.title h2:lang(mr){font-family:var(--serif-mr)}
+.stamp{flex:none;font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--stamp);
+  border:1.5px solid var(--stamp);border-radius:4px;padding:3px 7px;transform:rotate(-2deg);margin-top:4px}
+.meta{font-size:14px;color:var(--muted);margin-top:4px}
+.meta .warn{color:var(--stamp)}
+details{margin-top:10px;border-top:1px solid var(--rule-2);padding-top:8px;font-size:14.5px}
+summary{cursor:pointer;color:var(--ink-2);width:max-content}
+summary:hover{color:var(--ink)}
+.line{display:grid;grid-template-columns:78px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid var(--rule-2)}
+.line span:first-child{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-top:3px}
+.line .say{font-family:var(--serif);font-size:16.5px;line-height:1.65;color:var(--ink)}
+.line .say:lang(mr){font-family:var(--serif-mr)}
+.src{padding:4px 0;color:var(--ink-2)}
+.src b{display:inline-block;min-width:20px;text-align:center;background:var(--marigold-soft);border-radius:3px;margin-right:8px;font-size:13px}
+.dl{display:inline-block;margin-top:10px;font-size:14px}
+.empty{margin-top:34px;padding:22px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);color:var(--ink-2);max-width:640px}
+.empty code{font-size:14px;background:var(--sheet);border:1px solid var(--rule-2);border-radius:4px;padding:2px 6px}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">ST</div>
-  <div><h1>Concept videos</h1><div class="sub">Rendered from grounded NCERT answers</div></div>
-  <a href="/">&larr; Back to chat</a>
-</header>
-<main id="list"><p class="empty">Loading&hellip;</p></main>
+<header><div class="in">
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5C5.5 4 8.5 4 12 6c3.5-2 6.5-2 9-.5V19c-2.5-1.5-5.5-1.5-9 .5-3.5-2-6.5-2-9-.5z"/><path d="M12 6v13.5"/></svg>
+  <div><b>StoryTutor</b><small>Video library</small></div>
+  <nav><a href="/">Back to your textbook</a></nav>
+</div></header>
+<main>
+  <h1>Video library</h1>
+  <p class="lede">Thirty-second explainers, each made from an answer grounded in NCERT pages. Every line and diagram arrow is checked against that answer, and the sources are listed under each video.</p>
+  <div id="list" class="grid" aria-live="polite"></div>
+</main>
 
 <script>
 // Plain JS, no JSX: this page is served as a static file, and keeping it free
 // of template syntax means no engine can ever misread it.
+try{ const t=localStorage.getItem('st_theme'); if(t) document.documentElement.setAttribute('data-theme',t); }catch(e){}
 function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+const deva = s => /[ऀ-ॿ]/.test(s||'');
+const langOf = (s, l) => deva(s) ? (l==='marathi'?'mr':'hi') : 'en';
+const LANG = {english:'English', hindi:'हिंदी', marathi:'मराठी'};
+const SCENE = {title:'Title', idea:'Idea', diagram:'Diagram', check:'Your turn'};
+function chapter(ch){ const m=String(ch||'').match(/^[a-z]+\d(\d\d)$/i); return m?'Ch. '+parseInt(m[1],10):(ch?'Ch. '+ch:''); }
+function subject(s){ return s==='social_science'?'Social Science':s==='science'?'Science':(s||''); }
 
 fetch('/api/videos').then(r=>r.json()).then(items=>{
   const root=document.getElementById('list');
   if(!items.length){
-    root.innerHTML='<p class="empty">No videos yet. Generate some with<br><br>'+
-      '<code>python scripts/make_video.py --batch concepts.json --no-audio</code><br><br>'+
-      'then reload this page.</p>';
+    root.outerHTML='<div class="empty">No videos yet. Choose <b>Make video</b> under any sourced answer in the chat, '+
+      'or run <code>bash scripts/sol.sh videos</code>, then reload this page.</div>';
     return;
   }
-  root.innerHTML=items.map(v=>{
-    const src=(v.sources||[]).map((s,i)=>
-      '<div class="row"><b>S'+(i+1)+'</b> · '+esc(s.source_file||s.id||'')+
-      (s.chapter?' · ch '+esc(s.chapter):'')+(s.page?' · p'+esc(s.page):'')+
-      (s.score!=null?' · score '+Number(s.score).toFixed(3):'')+'</div>').join('');
-    const scenes=(v.scenes||[]).map(s=>
-      '<div class="row"><b>'+esc(s.key)+'</b> — '+esc(s.narration)+'</div>').join('');
-    return '<div class="card">'+
+  root.innerHTML=items.map((v,i)=>{
+    const q = v.question||v.title||v.file;
+    const lines=(v.scenes||[]).map(s=>'<div class="line"><span>'+esc(SCENE[s.key]||s.key)+'</span>'+
+      '<span class="say" lang="'+langOf(s.narration,v.language)+'">'+esc(s.narration)+'</span></div>').join('');
+    const src=(v.sources||[]).map((s,j)=>'<div class="src"><b>'+(j+1)+'</b>'+
+      esc(['Class '+(s.class_level||'–'), subject(s.subject), chapter(s.chapter), s.page?'p. '+s.page:''].filter(Boolean).join(' · '))+'</div>').join('');
+    const meta=[LANG[v.language]||v.language, (v.sources||[]).length+' source'+((v.sources||[]).length===1?'':'s'),
+      v.narrated?'narrated':'<span class="warn">subtitles only</span>',
+      v.illustrations?esc(v.illustrations)+' pictures':'text cards'].filter(Boolean).join(' · ');
+    return '<figure>'+
       '<video controls preload="metadata" src="'+esc(v.url)+'"></video>'+
-      '<div class="meta">'+
-        '<h2>'+esc(v.question||v.title||v.file)+'</h2>'+
-        '<div class="pills">'+
-          (v.language?'<span class="pill">'+esc(v.language)+'</span>':'')+
-          '<span class="pill ok">'+(v.sources||[]).length+' source(s)</span>'+
-          (v.total_words!=null?'<span class="pill">'+esc(v.total_words)+' words</span>':'')+
-          '<span class="pill '+(v.narrated?'ok':'warn')+'">'+(v.narrated?'narrated':'subtitles only')+'</span>'+
-          (v.verified===true?'<span class="pill ok">✓ fact-checked</span>':v.verified===false?'<span class="pill warn">not fact-checked</span>':'')+
-          (v.illustrations?'<span class="pill ok">'+esc(v.illustrations)+' illustrations</span>':'')+
-          (v.model_provider?'<span class="pill">'+esc(v.model_provider)+'</span>':'')+
-        '</div>'+
-        '<details><summary>Script</summary>'+scenes+'</details>'+
-        '<details><summary>Sources this video was built from</summary>'+(src||'<div class="row">none recorded</div>')+'</details>'+
+      '<figcaption>'+
+        '<div class="fig">Fig. '+(i+1)+'</div>'+
+        '<div class="title"><h2 lang="'+langOf(q,v.language)+'">'+esc(q)+'</h2>'+
+          (v.verified===true?'<span class="stamp" title="Every line and arrow was checked against the answer">Fact-checked</span>':'')+'</div>'+
+        '<div class="meta">'+meta+'</div>'+
+        '<details><summary>What the narrator says</summary>'+(lines||'<div class="src">No script recorded.</div>')+'</details>'+
+        '<details><summary>Textbook pages</summary>'+(src||'<div class="src">None recorded.</div>')+'</details>'+
         '<a class="dl" href="'+esc(v.url)+'" download>Download MP4</a>'+
-      '</div></div>';
+      '</figcaption></figure>';
   }).join('');
 }).catch(e=>{
-  document.getElementById('list').innerHTML='<p class="empty">Could not load videos: '+esc(e)+'</p>';
+  document.getElementById('list').outerHTML='<div class="empty">Could not load the videos: '+esc(e)+'</div>';
 });
 </script>
 </body>
