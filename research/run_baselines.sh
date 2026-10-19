@@ -22,9 +22,29 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJ="$(dirname "$HERE")"
 cd "$PROJ"
 
+# Same environment the server runs under. Without this the eval shells out to
+# Ollama with the library default model (qwen3:8b) while sol.sh serves
+# qwen2.5:7b -- every call 404s and the report silently measures the
+# passage fallback instead of the LLM (2026-10-19 baseline: exactly that bug).
+# sol_env.sh also enables the reranker, so the snapshot matches production.
+# shellcheck source=../scripts/sol_env.sh
+source scripts/sol_env.sh
+
 STAMP="$(date +%Y-%m-%d)"
 OUT="research/reports/$STAMP"
 mkdir -p "$OUT"
+
+# Record what produced these numbers -- a baseline without its config is
+# unreadable a month later (research/README.md ground rule 1).
+{
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+  echo "git: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  echo "host: $(hostname)"
+  echo "gpu: $(command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader | head -1 || echo none)"
+  echo "embedding: ${STORYTUTOR_EMBEDDING_MODEL:-BAAI/bge-m3}"
+  echo "rerank: ${STORYTUTOR_ENABLE_RERANK:-0}"
+  echo "llm: ollama ${OLLAMA_MODEL} @ ${OLLAMA_HOST}"
+} > "$OUT/config.txt"
 
 echo "== StoryTutor baseline snapshot -> $OUT"
 command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.used --format=csv,noheader | sed 's/^/  GPU /' || echo "  (no GPU visible)"

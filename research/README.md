@@ -16,7 +16,7 @@ environment active and the stack up (`bash scripts/sol.sh up`).
 | **R1** | Claim-level verification of generated explainer videos | `research/aggregate_video_claims.py` → claim/verdict dataset from video sidecars | **scaffolded — needs videos on Sol** | `python research/aggregate_video_claims.py` |
 | **R2** | NCERT-Ground: trilingual groundedness & attribution benchmark | golden sets in `eval/golden/`; frozen baselines via `research/run_baselines.sh` | **scaffolded — needs baseline run** | `bash research/run_baselines.sh` |
 | **R3** | Learning-gain RCT | school pilot protocol (external; needs consent + schools) | not started | — |
-| **R4** | Code-switched / romanized query retrieval | `research/queries/romanized_queries.jsonl` (seed perturbation set) | **seed set written — needs eval runner** | see README of that file |
+| **R4** | Code-switched / romanized query retrieval | `research/queries/romanized_queries.jsonl` (56-query seed set) + `research/run_r4_eval.py` | **runner written — needs Sol run** | `python research/run_r4_eval.py` |
 | **R5** | Devanagari extraction quality | `story_mvp/deva_quality.py` + `eval/diagnose_corpus.py` | built, needs write-up | `python eval/diagnose_corpus.py` |
 | **R6** | Model size vs teaching quality | roster in `model_clients.py`; judged by eval harness | not started | — |
 | **R7** | Misconception-triggered retrieval | `knowledge_base/misconceptions/` | not started (needs A/B arm) | — |
@@ -35,9 +35,18 @@ bash research/run_baselines.sh                 # R2 + R10: frozen snapshot of
                                                # retrieval/RAG/chat metrics into
                                                # research/reports/<date>/
 
+python research/run_r4_eval.py                 # R4: recall by query style
+                                               # native vs romanized vs code-switched
+
 python research/aggregate_video_claims.py      # R1: (claim, evidence, verdict)
                                                # dataset from every video made so far
 ```
+
+### Baseline log
+
+| Date | Result | Note |
+| --- | --- | --- |
+| 2026-10-19 | retrieval + chat valid; **rag_eval void** | eval shell lacked `OLLAMA_MODEL` → Ollama 404 → generation measured the passage fallback. Fixed: `run_baselines.sh` now sources `scripts/sol_env.sh` and writes `config.txt` into the snapshot; `run_rag_eval.py` loads `.env` like `app.py`. **Rerun before quoting any generation number.** |
 
 ## Data sources — where research numbers come from
 
@@ -61,9 +70,13 @@ python research/aggregate_video_claims.py      # R1: (claim, evidence, verdict)
 
 ## Next artifacts to build (in order)
 
-1. `research/run_r4_eval.py` — evaluate `queries/romanized_queries.jsonl`
-   through `run_retrieval_eval.py`-style scoring: recall@5 by query variant.
+1. ~~`research/run_r4_eval.py`~~ **done** — run it on Sol for the first R4 numbers.
 2. Sidecar claim export on **Sol** (run `aggregate_video_claims.py` after each
    demo day — the dataset grows with every video you make).
-3. R1 paper draft: judge/embedding disagreement analysis over the exported set.
-4. NCERT-Ground negatives: out-of-syllabus questions labelled `unanswerable`.
+3. **Refusal false-positive set (R9):** `os06 "आज मुंबई में मौसम कैसा है?"`
+   answered *as grounded* — vocabulary matches the weather chapter so the
+   evidence gate lets it through. Turn all such cases into labelled negatives.
+4. **Missing-source set (R2 negatives):** `hi05`, `mr08`, `xl01`, `xl03`
+   found no sources — each needs a gold chunk id so recall and refusal can be
+   scored on the same question.
+5. R1 paper draft: judge/embedding disagreement analysis over the exported set.

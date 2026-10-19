@@ -35,6 +35,16 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# The server loads .env at boot (app.py); without the same load here, StoryLLM
+# falls back to library defaults and Ollama 404s on a model nobody pulled --
+# every question then measures the passage fallback, not the LLM.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+
+    _load_dotenv(Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / ".env")
+except Exception:  # noqa: BLE001 - dotenv is optional; env vars still work
+    pass
+
 from story_mvp.guardrails import LOW_GROUNDEDNESS  # noqa: E402
 from story_mvp.rag_chat import answer_question  # noqa: E402
 
