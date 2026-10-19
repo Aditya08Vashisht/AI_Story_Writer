@@ -1,0 +1,56 @@
+{"id": "rq01-native", "concept": "spoon_heat", "variant": "native", "language": "english", "class_level": "6", "subject": "science", "query": "Why does a metal spoon get hot in hot water?"}
+{"id": "rq01-romanized", "concept": "spoon_heat", "variant": "romanized", "language": "hindi", "class_level": "6", "subject": "science", "query": "spoon garam pani me kyu garam hota hai?"}
+{"id": "rq01-codeswitch", "concept": "spoon_heat", "variant": "code_switched", "language": "hindi", "class_level": "6", "subject": "science", "query": "spoon गर्म पानी में क्यों गर्म होता है?"}
+{"id": "rq01-native-hi", "concept": "spoon_heat", "variant": "native", "language": "hindi", "class_level": "6", "subject": "science", "query": "धातु का चम्मच गर्म पानी में गर्म क्यों होता है?"}
+{"id": "rq02-native", "concept": "photosynthesis", "variant": "native", "language": "english", "class_level": "6", "subject": "science", "query": "What is photosynthesis?"}
+{"id": "rq02-romanized", "concept": "photosynthesis", "variant": "romanized", "language": "hindi", "class_level": "6", "subject": "science", "query": "photosynthesis kya hota hai?"}
+{"id": "rq02-codeswitch", "concept": "photosynthesis", "variant": "code_switched", "language": "hindi", "class_level": "6", "subject": "science", "query": "प्रकाश संश्लेषण kya hai?"}
+{"id": "rq02-native-hi", "concept": "photosynthesis", "variant": "native", "language": "hindi", "class_level": "6", "subject": "science", "query": "पौधे अपना भोजन कैसे बनाते हैं?"}
+{"id": "rq03-native", "concept": "friction", "variant": "native", "language": "english", "class_level": "6", "subject": "science", "query": "What is friction and how does it slow things down?"}
+{"id": "rq03-romanized", "concept": "friction", "variant": "romanized", "language": "hindi", "class_level": "6", "subject": "science", "query": "gharshan kya hai?"}
+{"id": "rq03-codeswitch", "concept": "friction", "variant": "code_switched", "language": "hindi", "class_level": "6", "subject": "science", "query": "घर्षण kya hota hai?"}
+{"id": "rq03-native-hi", "concept": "friction", "variant": "native", "language": "hindi", "class_level": "6", "subject": "science", "query": "घर्षण क्या है?"}
+{"id": "rq04-native", "concept": "monsoon", "variant": "native", "language": "english", "class_level": "7", "subject": "social_science", "query": "What causes the monsoon in India?"}
+{"id": "rq04-romanized", "concept": "monsoon", "variant": "romanized", "language": "hindi", "class_level": "7", "subject": "social_science", "query": "bharat me monsoon kyu aata hai?"}
+{"id": "rq04-codeswitch", "concept": "monsoon", "variant": "code_switched", "language": "hindi", "class_level": "7", "subject": "social_science", "query": "भारत में monsoon क्यों आता है?"}
+{"id": "rq04-native-hi", "concept": "monsoon", "variant": "native", "language": "hindi", "class_level": "7", "subject": "social_science", "query": "भारत में मानसून क्यों आता है?"}
+{"id": "rq05-native", "concept": "time_zone", "variant": "native", "language": "english", "class_level": "6", "subject": "social_science", "query": "If it is noon at the Prime Meridian, why is it 5:30 pm in India?"}
+{"id": "rq05-romanized", "concept": "time_zone", "variant": "romanized", "language": "hindi", "class_level": "6", "subject": "social_science", "query": "prime meridian par dopahar hai to india me 5:30 kyu?"}
+{"id": "rq05-codeswitch", "concept": "time_zone", "variant": "code_switched", "language": "hindi", "class_level": "6", "subject": "social_science", "query": "Prime Meridian पर दोपहर है तो भारत में समय अलग क्यों?"}
+{"id": "rq05-native-hi", "concept": "time_zone", "variant": "native", "language": "hindi", "class_level": "6", "subject": "social_science", "query": "प्रधान याम्योत्तर रेखा पर दोपहर हो तो भारत में पांच बज क्यों जाते हैं?"}
+{"id": "rq06-native", "concept": "force_pressure", "variant": "native", "language": "english", "class_level": "8", "subject": "science", "query": "Why does a moving object not need a continuous force to keep moving?"}
+{"id": "rq06-romanized", "concept": "force_pressure", "variant": "romanized", "language": "hindi", "class_level": "8", "subject": "science", "query": "chalit vastu ko lagatar force ki zarurat kyu nahi hoti?"}
+{"id": "rq06-codeswitch", "concept": "force_pressure", "variant": "code_switched", "language": "hindi", "class_level": "8", "subject": "science", "query": "चलती हुई वस्तु को continuous force क्यों नहीं चाहिए?"}
+{"id": "rq06-native-hi", "concept": "force_pressure", "variant": "native", "language": "hindi", "class_level": "8", "subject": "science", "query": "गतिमान वस्तु को गति बनाए रखने के लिए बल क्यों चाहिए?"}
+{"id": "rq07-native", "concept": "electricity", "variant": "native", "language": "english", "class_level": "6", "subject": "science", "query": "How does electricity travel in a circuit?"}
+{"id": "rq07-romanized", "concept": "electricity", "variant": "romanized", "language": "hindi", "class_level": "6", "subject": "science", "query": "circuit me bijli kaise chalti hai?"}
+{"id": "rq07-codeswitch", "concept": "electricity", "variant": "code_switched", "language": "hindi", "class_level": "6", "subject": "science", "query": "circuit में विद्युत धारा कैसे बहती है?"}
+{"id": "rq07-native-hi", "concept": "electricity", "variant": "native", "language": "hindi", "class_level": "6", "subject": "science", "query": "परिपथ में विद्युत धारा कैसे प्रवाहित होती है?"}
+{"id": "rq08-native", "concept": "weather_climate", "variant": "native", "language": "english", "class_level": "7", "subject": "social_science", "query": "What is the difference between weather and climate?"}
+{"id": "rq08-romanized", "concept": "weather_climate", "variant": "romanized", "language": "hindi", "class_level": "7", "subject": "social_science", "query": "mausam aur jalvayu me kya fark hai?"}
+{"id": "rq08-codeswitch", "concept": "weather_climate", "variant": "code_switched", "language": "hindi", "class_level": "7", "subject": "social_science", "query": "मौसम और climate में क्या अंतर है?"}
+{"id": "rq08-native-hi", "concept": "weather_climate", "variant": "native", "language": "hindi", "class_level": "7", "subject": "social_science", "query": "मौसम और जलवायु में क्या अंतर है?"}
+{"id": "rq09-native", "concept": "colonialism", "variant": "native", "language": "english", "class_level": "8", "subject": "social_science", "query": "What was the impact of British colonialism on India?"}
+{"id": "rq09-romanized", "concept": "colonialism", "variant": "romanized", "language": "hindi", "class_level": "8", "subject": "social_science", "query": "british vanaspati varg ne bharat par kya asar kiya?"}
+{"id": "rq09-codeswitch", "concept": "colonialism", "variant": "code_switched", "language": "hindi", "class_level": "8", "subject": "social_science", "query": "British औपनिवेशिकता का भारत पर क्या प्रभाव पड़ा?"}
+{"id": "rq09-native-hi", "concept": "colonialism", "variant": "native", "language": "hindi", "class_level": "8", "subject": "social_science", "query": "ब्रिटिश शासन का भारत पर क्या प्रभाव पड़ा?"}
+{"id": "rq10-native", "concept": "heat_conduction", "variant": "native", "language": "marathi", "class_level": "7", "subject": "science", "query": "उष्मा म्हणजे काय?"}
+{"id": "rq10-romanized", "concept": "heat_conduction", "variant": "romanized", "language": "marathi", "class_level": "7", "subject": "science", "query": "ushma kay aahe?"}
+{"id": "rq10-codeswitch", "concept": "heat_conduction", "variant": "code_switched", "language": "marathi", "class_level": "7", "subject": "science", "query": "उष्मा what is it in science?"}
+{"id": "rq10-native-en", "concept": "heat_conduction", "variant": "native", "language": "english", "class_level": "7", "subject": "science", "query": "What is heat?"}
+{"id": "rq11-native", "concept": "pond_ecosystem", "variant": "native", "language": "english", "class_level": "6", "subject": "science", "query": "How are living and non-living things connected in a pond ecosystem?"}
+{"id": "rq11-romanized", "concept": "pond_ecosystem", "variant": "romanized", "language": "hindi", "class_level": "6", "subject": "science", "query": "talab ke ecosystem me jivit aur ajivit cheezein kaise judi hain?"}
+{"id": "rq11-codeswitch", "concept": "pond_ecosystem", "variant": "code_switched", "language": "hindi", "class_level": "6", "subject": "science", "query": "तालाब के ecosystem में जीवित और अजीवित कण कैसे जुड़े हैं?"}
+{"id": "rq11-native-hi", "concept": "pond_ecosystem", "variant": "native", "language": "hindi", "class_level": "6", "subject": "science", "query": "तालाब के पारिस्थितिकी तंत्र में जीवित और निर्जीव घटक कैसे जुड़े हैं?"}
+{"id": "rq12-native", "concept": "food_components", "variant": "native", "language": "english", "class_level": "6", "subject": "science", "query": "Which foods give us carbohydrates and proteins?"}
+{"id": "rq12-romanized", "concept": "food_components", "variant": "romanized", "language": "hindi", "class_level": "6", "subject": "science", "query": "kaun se khane se carbohydrate aur protein milta hai?"}
+{"id": "rq12-codeswitch", "concept": "food_components", "variant": "code_switched", "language": "hindi", "class_level": "6", "subject": "science", "query": "किस खाने से carbohydrate और protein मिलता है?"}
+{"id": "rq12-native-hi", "concept": "food_components", "variant": "native", "language": "hindi", "class_level": "6", "subject": "science", "query": "कौन-से आहार से हमें कार्बोहाइड्रेट और प्रोटीन मिलते हैं?"}
+{"id": "rq13-native", "concept": "gravity", "variant": "native", "language": "english", "class_level": "8", "subject": "science", "query": "Why do we weigh less on the moon?"}
+{"id": "rq13-romanized", "concept": "gravity", "variant": "romanized", "language": "hindi", "class_level": "8", "subject": "science", "query": "chand par humara wajan kam kyu hota hai?"}
+{"id": "rq13-codeswitch", "concept": "gravity", "variant": "code_switched", "language": "hindi", "class_level": "8", "subject": "science", "query": "चंद्रमा पर हमारा वजन कम क्यों होता है?"}
+{"id": "rq13-native-hi", "concept": "gravity", "variant": "native", "language": "hindi", "class_level": "8", "subject": "science", "query": "चंद्रमा पर हमारा भार कम क्यों होता है?"}
+{"id": "rq14-native", "concept": "load_pressure", "variant": "native", "language": "marathi", "class_level": "8", "subject": "science", "query": "दाब म्हणजे काय?"}
+{"id": "rq14-romanized", "concept": "load_pressure", "variant": "romanized", "language": "marathi", "class_level": "8", "subject": "science", "query": "daab kay aahe?"}
+{"id": "rq14-codeswitch", "concept": "load_pressure", "variant": "code_switched", "language": "marathi", "class_level": "8", "subject": "science", "query": "दाब what does it mean?"}
+{"id": "rq14-native-en", "concept": "load_pressure", "variant": "native", "language": "english", "class_level": "8", "subject": "science", "query": "What is pressure?"}
